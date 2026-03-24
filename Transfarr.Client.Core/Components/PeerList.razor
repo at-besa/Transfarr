@@ -1,0 +1,64 @@
+@using Transfarr.Client.Core.Services
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="background-color: var(--bg-panel); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; height: 100%; display: flex; flex-direction: column;">
+    <h3 style="font-size: 18px; margin: 0 0 20px 0; color: var(--text-highlight); font-weight: 400; display: flex; align-items: center; gap: 8px;">
+        <span style="width: 8px; height: 8px; border-radius: 50%; background-color: #40c057;"></span>
+        Online Network (@(Connection.OnlinePeers.Count))
+    </h3>
+    
+    <div style="flex: 1; overflow-y: auto; padding-right: 4px;">
+        @foreach (var peer in Connection.OnlinePeers)
+        {
+            var isMe = Connection.LocalPeer != null && peer.PeerId == Connection.LocalPeer.PeerId;
+
+            <div style="margin-bottom: 8px; padding: 12px; background-color: @(isMe ? "rgba(64, 192, 87, 0.05)" : "var(--bg-app)"); border: 1px solid @(isMe ? "rgba(64, 192, 87, 0.3)" : "var(--border-color)"); border-radius: 6px; display: flex; justify-content: space-between; align-items: center; transition: all 0.2s ease;" class="@(isMe ? "" : "peer-item-hover")">
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <div style="font-weight: 500; font-size: 14px; color: @(isMe ? "#40c057" : "white")">
+                        @peer.Name
+                        @if (isMe)
+                        {
+                            <span style="font-size: 10px; background: #40c057; color: white; padding: 1px 4px; border-radius: 3px; margin-left: 6px; vertical-align: middle;">YOU</span>
+                        }
+                    </div>
+                    <div style="font-size: 11px; color: var(--text-muted);">
+                        Sharing: @((peer.SharedBytes / 1024.0 / 1024.0 / 1024.0).ToString("F1")) GB
+                    </div>
+                </div>
+                
+                <button class="btn-clean" @onclick='() => Connection.SendMessage(peer.PeerId, "REQ_FILELIST")' style="padding: 6px 10px; font-size: 12px; background-color: var(--accent-blue); color: white;">
+                    @(isMe ? "My Files" : "Browse")
+                </button>
+            </div>
+        }
+
+        @if (!Connection.OnlinePeers.Any())
+        {
+            <div style="text-align: center; color: var(--text-muted); padding: 40px 0; font-style: italic; font-size: 13px;">
+                Searching for peers...
+            </div>
+        }
+    </div>
+</div>
+
+<style>
+    .peer-item-hover:hover {
+        border-color: var(--accent-blue) !important;
+        transform: translateX(4px);
+    }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Connection.OnStateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Connection.OnStateChanged -= HandleStateChanged;
+    }
+}

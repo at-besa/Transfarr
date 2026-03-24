@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Transfarr.Client.Core/Transfarr.Client.Core.csproj" />
+  <Project Path="Transfarr.Client.Web/Transfarr.Client.Web.csproj" />
+  <Project Path="Transfarr.Node/Transfarr.Node.csproj" />
+  <Project Path="Transfarr.Shared/Transfarr.Shared.csproj" />
+  <Project Path="Transfarr.Signaling/Transfarr.Signaling.csproj" />
+</Solution>

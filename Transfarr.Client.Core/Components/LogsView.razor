@@ -1,0 +1,70 @@
+@using Transfarr.Shared.Models
+@using Transfarr.Client.Core.Services
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="max-width:900px; width:100%; margin:0 auto;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+        <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin:0;">System Logs</h2>
+        
+        <div style="display:flex; gap:8px; font-size:12px;">
+            <button class="btn-clean" style="padding:6px 12px; background-color:@(_showInfo ? "var(--accent-blue)" : "var(--bg-app)"); color:white;" @onclick="() => _showInfo = !_showInfo">
+                Info (@Connection.SystemLogs.Count(x => x.Level == LogLevel.Info))
+            </button>
+            <button class="btn-clean" style="padding:6px 12px; background-color:@(_showWarn ? "#d48806" : "var(--bg-app)"); color:white;" @onclick="() => _showWarn = !_showWarn">
+                Warnings (@Connection.SystemLogs.Count(x => x.Level == LogLevel.Warning))
+            </button>
+            <button class="btn-clean" style="padding:6px 12px; background-color:@(_showErr ? "#e03131" : "var(--bg-app)"); color:white;" @onclick="() => _showErr = !_showErr">
+                Errors (@Connection.SystemLogs.Count(x => x.Level == LogLevel.Error))
+            </button>
+        </div>
+    </div>
+
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
+        @if (FilteredLogs.Any())
+        {
+            <div style="padding:16px; font-family:monospace; font-size:12px;">
+                @foreach (var log in FilteredLogs)
+                {
+                    string color = log.Level switch { LogLevel.Info => "#868e96", LogLevel.Warning => "#fab005", LogLevel.Error => "#ff6b6b", _ => "white" };
+                    <div style="margin-bottom:8px; border-bottom:1px solid #2a2a2a; padding-bottom:8px;">
+                        <span style="color:@color; font-weight:bold; margin-right:8px;">[@log.Timestamp.ToString("HH:mm:ss") @log.Level.ToString().ToUpperInvariant()]</span> 
+                        <span style="color:#ced4da;">@log.Message</span>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <div style="padding:48px 16px; text-align:center; color:var(--text-muted); font-style:italic;">No background events match the current filter selection.</div>
+        }
+    </div>
+</div>
+
+@code {
+    private bool _showInfo = true;
+    private bool _showWarn = true;
+    private bool _showErr = true;
+    
+    private IEnumerable<LogEntry> FilteredLogs
+    {
+        get
+        {
+            lock (Connection.SystemLogs)
+            {
+                return Connection.SystemLogs.Where(l => 
+                    (l.Level == LogLevel.Info && _showInfo) ||
+                    (l.Level == LogLevel.Warning && _showWarn) ||
+                    (l.Level == LogLevel.Error && _showErr)
+                ).ToList();
+            }
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Connection.OnStateChanged += Refresh;
+    }
+    private void Refresh() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Connection.OnStateChanged -= Refresh;
+}

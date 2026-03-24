@@ -1,0 +1,161 @@
+@using Transfarr.Client.Core.Services
+@using Transfarr.Shared.Models
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="display:flex; flex-direction:column; gap:32px;">
+    
+    <!-- Active Downloads Section -->
+    <section>
+        <h3 style="font-size:16px; font-weight:600; color:var(--text-highlight); margin-bottom:16px; display:flex; align-items:center; gap:8px;">
+            <span>⏳</span> Active & Pending Downloads
+            <span style="font-size:12px; font-weight:400; color:var(--text-muted); background:var(--bg-panel); padding:2px 8px; border-radius:10px; margin-left:8px;">
+                @ActiveItems.Count()
+            </span>
+        </h3>
+        
+        <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
+            <table class="data-table" style="width:100%; text-align:left; font-size:13px;">
+                <thead style="background-color:var(--bg-header);">
+                    <tr>
+                        <th style="padding:10px 16px;">File</th>
+                        <th style="padding:10px 16px;">Source</th>
+                        <th style="padding:10px 16px;">Status</th>
+                        <th style="padding:10px 16px; width:200px;">Progress</th>
+                        <th style="padding:10px 16px; width:80px; text-align:center;">Action</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in ActiveItems)
+                    {
+                        <tr style="background-color:var(--bg-app); border-bottom:1px solid var(--border-color); transition: background 0.2s;">
+                            <td style="padding:10px 16px; color:var(--text-highlight); font-weight:500;">
+                                <div style="max-width:350px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@item.FileName">
+                                    @item.FileName
+                                </div>
+                                @if (!string.IsNullOrEmpty(item.RelativePath))
+                                {
+                                    <div style="font-size:10px; color:var(--text-muted); margin-top:2px;">📁 @item.RelativePath</div>
+                                }
+                            </td>
+                            <td style="padding:10px 16px; font-family:monospace; color:var(--text-muted); font-size:11px;">
+                                @(item.TargetPeer?.Name ?? item.TargetPeerId.Substring(0, 8))
+                            </td>
+                            <td style="padding:10px 16px; font-weight:600; font-size:12px;">
+                                @if (item.Status == "Downloading") { <span style="color:var(--accent-blue);">DOWNLOADING</span> }
+                                else if (item.Status.StartsWith("Error")) { <span style="color:#ff4d4d;">ERROR</span> }
+                                else { <span style="color:var(--text-muted);">QUEUED</span> }
+                            </td>
+                            <td style="padding:10px 16px;">
+                                <div style="display:flex; align-items:center; gap:12px;">
+                                    <div style="flex:1; height:6px; background-color:var(--bg-input); border-radius:3px; overflow:hidden;">
+                                        <div style="height:100%; background-color:var(--accent-blue); width:@(item.Progress * 100)%; transition:width 0.4s ease;"></div>
+                                    </div>
+                                    <span style="font-size:11px; color:var(--text-muted); font-family:monospace; width:36px; text-align:right;">@((item.Progress * 100).ToString("0"))%</span>
+                                </div>
+                                <div style="font-size:10px; color:var(--text-muted); margin-top:4px; text-align:right;">
+                                    @FormatBytes(item.BytesDownloaded) / @FormatBytes(item.FileSize)
+                                </div>
+                            </td>
+                            <td style="padding:10px 16px; text-align:center;">
+                                <button class="btn-clean" style="padding:4px 8px; font-size:11px; color:#ff4d4d; border-color:rgba(255,77,77,0.3);" 
+                                        @onclick="() => RemoveItem(item.Id)" title="Cancel and remove from queue">✕</button>
+                            </td>
+                        </tr>
+                    }
+                    @if (!ActiveItems.Any())
+                    {
+                        <tr>
+                            <td colspan="5" style="padding:48px 16px; text-align:center; color:var(--text-muted); font-style:italic;">No active downloads.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Completed Downloads Section -->
+    <section>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+            <h3 style="font-size:16px; font-weight:600; color:var(--text-highlight); margin:0; display:flex; align-items:center; gap:8px;">
+                <span>✅</span> Finished / Completed
+                <span style="font-size:12px; font-weight:400; color:var(--text-muted); background:var(--bg-panel); padding:2px 8px; border-radius:10px; margin-left:8px;">
+                    @CompletedItems.Count()
+                </span>
+            </h3>
+            @if (CompletedItems.Any())
+            {
+                <button class="btn-clean" style="font-size:11px; padding:2px 10px;" @onclick="ClearHistory">Clear History</button>
+            }
+        </div>
+        
+        <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden; opacity:0.8;">
+            <table class="data-table" style="width:100%; text-align:left; font-size:13px;">
+                <thead style="background-color:var(--bg-header);">
+                    <tr>
+                        <th style="padding:8px 16px;">File</th>
+                        <th style="padding:8px 16px;">Source</th>
+                        <th style="padding:8px 16px;">Size</th>
+                        <th style="padding:8px 16px; text-align:right;">Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var item in CompletedItems)
+                    {
+                        <tr style="background-color:var(--bg-app); border-bottom:1px solid var(--border-color);">
+                            <td style="padding:8px 16px; color:var(--text-muted);">@item.FileName</td>
+                            <td style="padding:8px 16px; color:var(--text-muted); font-size:11px;">@(item.TargetPeer?.Name ?? "Unknown")</td>
+                            <td style="padding:8px 16px; color:var(--text-muted); font-family:monospace;">@FormatBytes(item.FileSize)</td>
+                            <td style="padding:8px 16px; text-align:right; font-weight:600; font-size:11px; color:var(--accent-green);">FINISHED</td>
+                        </tr>
+                    }
+                    @if (!CompletedItems.Any())
+                    {
+                        <tr>
+                            <td colspan="4" style="padding:24px 16px; text-align:center; color:var(--text-muted); font-style:italic; font-size:12px;">No completed items in history.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</div>
+
+@code {
+    private IEnumerable<DownloadItem> ActiveItems => Connection.Queue.Where(q => q.Status != "Finished");
+    private IEnumerable<DownloadItem> CompletedItems => Connection.Queue.Where(q => q.Status == "Finished").Reverse();
+
+    protected override void OnInitialized()
+    {
+        Connection.OnStateChanged += Refresh;
+    }
+    
+    private void Refresh() => InvokeAsync(StateHasChanged);
+    
+    public void Dispose() => Connection.OnStateChanged -= Refresh;
+
+    private async Task RemoveItem(string id)
+    {
+        await Connection.RemoveFromDownload(id);
+    }
+
+    private async Task ClearHistory()
+    {
+        foreach (var item in CompletedItems.ToList())
+        {
+            await Connection.RemoveFromDownload(item.Id);
+        }
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] suffix = { "B", "KB", "MB", "GB", "TB" };
+        int i = 0;
+        double dS = bytes;
+        if (bytes > 1024)
+            for (i = 0; (bytes / 1024) > 0 && i < suffix.Length - 1; i++, bytes /= 1024)
+                dS = bytes / 1024.0;
+        return $"{dS:0.##} {suffix[i]}";
+    }
+}

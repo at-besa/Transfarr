@@ -1,0 +1,73 @@
+@using Transfarr.Client.Core.Services
+@using Transfarr.Shared.Models
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="display:flex; flex-direction:column; gap:24px; padding:8px;">
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; border-bottom:1px solid var(--border-color); padding-bottom:12px;">
+        <div>
+            <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin:0;">Duplicate Finder</h2>
+            <p style="color:var(--text-muted); font-size:13px; margin:4px 0 0 0;">Files that exist in multiple locations on your drive.</p>
+        </div>
+        <button class="btn-clean" @onclick="LoadDuplicates">⟳ Refresh Scan</button>
+    </div>
+
+    @if (_isLoading)
+    {
+        <div style="padding:64px; text-align:center; color:var(--text-muted);">
+            Scanning your shares for duplicates...
+        </div>
+    }
+    else if (!_duplicates.Any())
+    {
+        <div style="padding:64px; text-align:center; background-color:var(--bg-panel); border:1px dashed var(--border-color); border-radius:4px;">
+            <div style="font-size:32px; margin-bottom:16px;">📑</div>
+            <div style="color:var(--text-highlight); font-weight:600;">No Duplicates Found</div>
+            <div style="color:var(--text-muted); font-size:13px; margin-top:8px;">Your shares are clean and efficient. Nice job!</div>
+        </div>
+    }
+    else
+    {
+        <div style="display:flex; flex-direction:column; gap:16px;">
+            @foreach (var dup in _duplicates)
+            {
+                <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
+                    <div style="padding:12px 16px; background-color:var(--bg-header); border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+                        <span style="font-family:monospace; font-size:12px; color:var(--accent-blue);">TTH: @dup.Key</span>
+                        <span style="font-size:11px; font-weight:600; color:#ff4d4d; background:rgba(255,77,77,0.1); padding:2px 8px; border-radius:10px;">@dup.Value.Count LOCATIONS</span>
+                    </div>
+                    @foreach (var path in dup.Value)
+                    {
+                        <div style="padding:10px 16px; display:flex; align-items:center; gap:12px; border-bottom:1px solid rgba(255,255,255,0.03); font-size:13px;">
+                            <span style="opacity:0.5;">📁</span>
+                            <span style="color:var(--text-muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@path</span>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private Dictionary<string, List<string>> _duplicates = new();
+    private bool _isLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connection.OnStateChanged += Refresh;
+        await LoadDuplicates();
+    }
+
+    private async Task LoadDuplicates()
+    {
+        _isLoading = true;
+        StateHasChanged();
+        _duplicates = await Connection.GetDuplicates();
+        _isLoading = false;
+        StateHasChanged();
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+    public void Dispose() => Connection.OnStateChanged -= Refresh;
+}

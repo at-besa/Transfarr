@@ -1,0 +1,475 @@
+@using Transfarr.Client.Core.Services
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="max-width:900px; width:100%; margin:0 auto;">
+    <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin-bottom:24px;">Node Settings & Shares</h2>
+
+    <!-- Download Settings Section -->
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:24px; margin-bottom:24px;">
+        <h3 style="font-size:16px; font-weight:500; color:var(--text-highlight); margin-top:0; margin-bottom:16px;">General Download Settings</h3>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">Define where your incoming P2P transfers should be saved on your computer.</p>
+        
+        <div style="background-color:var(--bg-app); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:20px; margin-bottom:20px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Node Display Name</label>
+            <div style="display:flex; gap:12px; align-items:center;">
+                <input type="text" @bind="_nodeName" class="input-clean" style="flex:1; padding:10px; font-size:13px;" placeholder="Node Name" />
+                <button class="btn-clean" style="padding:10px 24px; background-color:var(--accent-blue); color:white; border:none;" @onclick="SaveNodeName">
+                    Update Name
+                </button>
+            </div>
+        </div>
+
+        <section style="margin-bottom:32px;">
+            <h3 style="font-size:16px; font-weight:500; color:var(--text-highlight); margin-top:0; margin-bottom:16px;">Network & Hub Connectivity</h3>
+            <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">Manage your connection to the global signaling network and your favorite hubs.</p>
+            
+            <div style="background-color:var(--bg-app); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:20px; margin-bottom:20px;">
+                <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Current Connection</label>
+                @if (Connection.IsConnectedToGlobalHub)
+                {
+                    <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(64, 192, 87, 0.05); border:1px solid rgba(64, 192, 87, 0.2); padding:12px; border-radius:4px;">
+                        <div>
+                            <div style="font-size:13px; color:var(--text-highlight); font-weight:600;">Active: @CleanUrl(Connection.GlobalHubUrl)</div>
+                            <div style="font-size:11px; color:var(--text-muted);">@Connection.GlobalHubUrl</div>
+                        </div>
+                        <button class="btn-clean" style="background:#ff4d4d; color:white; padding:6px 16px; font-size:12px;" @onclick="DisconnectHub">
+                            Disconnect
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div style="font-size:13px; color:var(--text-muted); padding:12px; border:1px dashed var(--border-color); border-radius:4px; text-align:center;">
+                        Not connected to any hub.
+                    </div>
+                }
+            </div>
+
+            <div style="background-color:var(--bg-app); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:20px;">
+                <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Manage Hub Favorites</label>
+                <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+                    @foreach (var fav in Connection.HubFavorites)
+                    {
+                        <div style="display:flex; gap:8px; align-items:center; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:4px;">
+                            <div style="flex:1;">
+                                <div style="font-size:12px; font-weight:600; color:var(--text-highlight);">@fav.Name</div>
+                                <div style="font-size:10px; color:var(--text-muted); font-family:monospace;">@CleanUrl(fav.Url)</div>
+                            </div>
+                            <button class="btn-clean" style="padding:4px; color:#ff4d4d; border:none;" title="Remove" @onclick="() => RemoveFavorite(fav.Url)">🗑️</button>
+                        </div>
+                    }
+                </div>
+                
+                <div style="display:flex; gap:8px;">
+                    <input type="text" @bind="_newFavName" class="input-clean" style="flex:1; padding:8px; font-size:12px;" placeholder="Name (e.g. My private hub)" />
+                    <input type="text" @bind="_newFavUrl" class="input-clean" style="flex:2; padding:8px; font-size:12px;" placeholder="URL (e.g. localhost:5135)" />
+                    <button class="btn-clean" style="padding:8px 16px; font-size:12px; background:var(--accent-blue); color:white; border:none;" @onclick="AddFavorite" disabled="@(string.IsNullOrWhiteSpace(_newFavUrl))">
+                        Add Favorite
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <div style="background-color:var(--bg-app); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:20px;">
+            <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Root Download Directory</label>
+            
+            <div style="display:flex; gap:12px; align-items:center;">
+                <div style="font-family:monospace; font-size:13px; color:var(--text-highlight); background:rgba(0,0,0,0.3); padding:10px 16px; border-radius:4px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; border:1px solid rgba(255,255,255,0.03);">
+                    @(string.IsNullOrEmpty(_dlSelectedDir) ? "Not configured" : _dlSelectedDir)
+                </div>
+                <button class="btn-clean" style="padding:10px 20px;" @onclick="ToggleDownloadBrowser">
+                    @(_showDlBrowser ? "Cancel Change" : "Change Location...")
+                </button>
+            </div>
+            @if (_showDlBrowser)
+            {
+                <div style="margin-top:20px; border-top:1px solid rgba(255,255,255,0.05); padding-top:20px; animation: fadeIn 0.3s ease;">
+                    <div style="display:flex; gap:12px; align-items:center; margin-bottom:16px;">
+                        <button class="btn-clean" style="padding:6px 14px; font-size:12px;" @onclick="NavigateUpDownload" disabled="@(string.IsNullOrEmpty(_dlOsPath))">⬆ Up</button>
+                        <div style="font-family:monospace; font-size:11px; color:var(--text-muted); flex:1; overflow:hidden; text-overflow:ellipsis;">
+                            Browsing: @(_dlOsPath == "" ? "Computer" : _dlOsPath)
+                        </div>
+                    </div>
+
+                    <div style="height:180px; background:rgba(0,0,0,0.25); border:1px solid rgba(255,255,255,0.05); border-radius:4px; overflow-y:auto; padding:6px;">
+                        @foreach (var dir in _dlOsDirectories)
+                        {
+                            var isSelectedInList = dir == _dlSelectedDir;
+                            <div @onclick="() => SelectDownloadDir(dir)" @ondblclick="() => NavigateToDownload(dir)" 
+                                 style="padding:6px 12px; cursor:pointer; font-family:monospace; font-size:13px; display:flex; align-items:center; gap:8px; border-radius:4px; transition:all 0.1s; @(isSelectedInList ? "background-color:var(--accent-blue); color:white;" : "color:var(--text-muted);")">
+                                <span>📁</span> 
+                                <span>@(string.IsNullOrEmpty(_dlOsPath) ? dir : System.IO.Path.GetFileName(dir))</span>
+                            </div>
+                        }
+                    </div>
+
+                    <div style="margin-top:20px; display:flex; justify-content:flex-end; gap:12px;">
+                        <button class="btn-clean" style="padding:10px 32px; background-color:var(--accent-blue); color:white; border:none;" 
+                                @onclick="SaveDownloadPath">
+                            Update to Selection
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (!string.IsNullOrEmpty(_settingsMessage))
+        {
+            <div style="margin-top:12px; color:var(--accent-green); font-size:12px; text-align:center;">@_settingsMessage</div>
+        }
+    </div>
+
+    <!-- Connectivity Settings Section -->
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:24px; margin-bottom:24px;">
+        <h3 style="font-size:16px; font-weight:500; color:var(--text-highlight); margin-top:0; margin-bottom:16px;">Connectivity Settings</h3>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">Configure how other peers connect to your node for file transfers.</p>
+        
+        <div style="background-color:var(--bg-app); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:20px;">
+            <div style="display:flex; flex-wrap:wrap; gap:24px;">
+                <div style="flex:1; min-width:200px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">P2P Transfer Port (TCP)</label>
+                    <input type="number" @bind="_targetP2PPort" class="input-clean" style="width:100px; padding:8px;" placeholder="0" />
+                    <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Set to <b>0</b> for a random available port. <br/><i>Note: Changing this requires a Node restart.</i></p>
+                </div>
+                
+                <div style="flex:1; min-width:200px; border-left:1px solid var(--border-color); padding-left:24px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Current Status</label>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="status-dot status-online"></span>
+                        <span style="font-size:13px; color:var(--text-highlight);">Listening on port: <b>@_currentListenPort</b></span>
+                    </div>
+                </div>
+            </div>
+
+            <div style="margin-top:20px; display:flex; justify-content:flex-end;">
+                <button class="btn-clean" style="padding:10px 32px; background-color:var(--accent-blue); color:white; border:none;" 
+                        @onclick="SaveConnectivitySettings">
+                    Save Connectivity Settings
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Shares List -->
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; margin-bottom:24px; overflow:hidden;">
+        <div style="padding:16px; border-bottom:1px solid var(--border-color); background-color:var(--bg-header); display:flex; justify-content:space-between; align-items:center;">
+            <h3 style="font-size:14px; font-weight:600; color:var(--text-highlight); margin:0;">ACTIVE OS SHARES (@Connection.SharedDirectories.Count)</h3>
+            <div style="display:flex; align-items:center; gap:16px;">
+                <span style="font-size:11px; color:var(--text-muted); font-weight:500;">Total Shared: @FormatSize(_shareSizes.Values.Sum())</span>
+                <button class="btn-clean @(Connection.CurrentHashProgress.IsHashing ? "spinning" : "")" 
+                        style="padding:4px 10px; font-size:11px; display:flex; align-items:center; gap:6px;" 
+                        @onclick="ManualRefresh" disabled="@Connection.CurrentHashProgress.IsHashing">
+                    <span>⟳</span> Refresh Now
+                </button>
+            </div>
+        </div>
+        <table class="data-table" style="width:100%; text-align:left; font-size:13px;">
+            <thead>
+                <tr style="background-color:rgba(255,255,255,0.02);">
+                    <th style="padding:10px 16px; border-bottom:1px solid var(--border-color);">Virtual Name</th>
+                    <th style="padding:10px 16px; border-bottom:1px solid var(--border-color);">Physical OS Path</th>
+                    <th style="padding:10px 16px; border-bottom:1px solid var(--border-color); text-align:right;">Size</th>
+                    <th style="padding:10px 16px; border-bottom:1px solid var(--border-color); width:100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var kvp in Connection.SharedDirectories)
+                {
+                    <tr style="background-color:transparent; border-bottom:1px solid var(--border-color);">
+                        <td style="padding:10px 16px; color:var(--text-highlight); font-weight:600;">📁 @kvp.Key</td>
+                        <td style="padding:10px 16px; color:var(--text-muted); font-family:monospace; font-size:11px;">@kvp.Value</td>
+                        <td style="padding:10px 16px; text-align:right; font-family:monospace; color:var(--text-highlight);">
+                             @(_shareSizes.TryGetValue(kvp.Key, out var size) ? FormatSize(size) : "...")
+                        </td>
+                        <td style="padding:10px 16px;">
+                            <button class="btn-clean" style="padding:4px 8px; font-size:10px; color:#ff4d4d; border-color:#ff4d4d;" @onclick="() => RemoveShare(kvp.Key)">Unshare</button>
+                        </td>
+                    </tr>
+                }
+                @if (!Connection.SharedDirectories.Any())
+                {
+                    <tr>
+                        <td colspan="4" style="padding:48px 16px; text-align:center; color:var(--text-muted); font-style:italic;">You currently have zero folders shared to the network.</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:24px; margin-bottom:24px;">
+        <h3 style="font-size:16px; font-weight:500; color:var(--text-highlight); margin-top:0; margin-bottom:16px;">Add New Share</h3>
+        <p style="font-size:12px; color:var(--text-muted); margin-bottom:16px;">Select a physical folder from your Node's computer to mount to the P2P network.</p>
+        
+        <div style="display:flex; gap:24px; align-items:stretch;">
+            <!-- Left Side: Directory Browser -->
+            <div style="flex:2;">
+                <!-- Current Path and Up button -->
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+                    <button class="btn-clean" style="padding:4px 8px; font-size:12px;" @onclick="NavigateUp" disabled="@(string.IsNullOrEmpty(_currentOsPath))">⬆ Up</button>
+                    <span style="font-size:12px; color:var(--text-highlight); font-family:monospace; background:var(--bg-app); padding:4px 8px; border-radius:4px; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                        @(_currentOsPath == "" ? "This PC (Local Drives)" : _currentOsPath)
+                    </span>
+                </div>
+                
+                <!-- Directory List Box -->
+                <div style="height:200px; background-color:var(--bg-app); border:1px solid var(--border-color); border-radius:4px; overflow-y:auto; padding:4px;">
+                    @foreach (var dir in _osDirectories)
+                    {
+                        var isSelected = dir == _selectedDir;
+                        <div @onclick="() => SelectDirectory(dir)" @ondblclick="() => NavigateTo(dir)" 
+                             style="padding:6px 12px; cursor:pointer; font-family:monospace; font-size:13px; display:flex; align-items:center; gap:8px; border-radius:4px; @(isSelected ? "background-color:var(--accent-blue); color:white;" : "color:var(--text-muted);")">
+                            <span>📁</span> 
+                            <span>@(string.IsNullOrEmpty(_currentOsPath) ? dir : System.IO.Path.GetFileName(dir))</span>
+                        </div>
+                    }
+                </div>
+            </div>
+
+            <!-- Right Side: Configuration -->
+            <div style="flex:1; display:flex; flex-direction:column; justify-content:flex-end;">
+                <div style="margin-bottom:16px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:8px;">Virtual Name (Public)</label>
+                    <input type="text" @bind="_virtualName" @bind:event="oninput" placeholder="e.g., My Movies" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" />
+                </div>
+                
+                <button class="btn-clean" style="padding:12px 16px; width:100%;" @onclick="ShareDir" disabled="@(string.IsNullOrEmpty(_selectedDir) || string.IsNullOrWhiteSpace(_virtualName))">
+                    Add Selection to Network
+                </button>
+                
+                @if (Connection.CurrentHashProgress.IsHashing)
+                {
+                    <div style="margin-top:16px;">
+                        <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:4px; color:var(--text-highlight);">
+                            <span>Hashing Files...</span>
+                            <span>@Connection.CurrentHashProgress.SpeedMBps.ToString("0.0") MB/s (@((Connection.CurrentHashProgress.Progress * 100).ToString("0.0"))%)</span>
+                        </div>
+                        <div style="height:6px; background-color:var(--bg-app); border-radius:3px; overflow:hidden;">
+                            <div style="height:100%; width:@(Connection.CurrentHashProgress.Progress * 100)%; background-color:var(--accent-blue); transition:width 0.3s ease;"></div>
+                        </div>
+                    </div>
+                }
+                
+                @if (!string.IsNullOrEmpty(_message) && !Connection.CurrentHashProgress.IsHashing)
+                {
+                    <div style="margin-top:12px; color:var(--accent-green); font-size:12px; text-align:center;">@_message</div>
+                }
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    @@keyframes fadeIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+
+@code {
+    private string _virtualName = "";
+    private string _nodeName = "";
+    private string _newFavName = "";
+    private string _newFavUrl = "";
+    private string _message = "";
+    private string _settingsMessage = "";
+    
+    // Share Browser State
+    private string _currentOsPath = "";
+    private string _selectedDir = "";
+    private string[] _osDirectories = Array.Empty<string>();
+
+    // Download Browser State
+    private bool _showDlBrowser = false;
+    private string _dlOsPath = "";
+    private string _dlSelectedDir = "";
+    private string[] _dlOsDirectories = Array.Empty<string>();
+    
+    private Dictionary<string, long> _shareSizes = new();
+    
+    // Connectivity State
+    private int _targetP2PPort;
+    private int _currentListenPort;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connection.OnStateChanged += Refresh;
+        await LoadDirectories("");
+        await LoadDownloadDirectories("");
+        _dlSelectedDir = await Connection.GetDownloadPath();
+        await LoadShareSizes();
+        
+        _targetP2PPort = await Connection.GetP2PPort();
+        _currentListenPort = await Connection.GetCurrentListenPort();
+        _nodeName = Connection.NodeName;
+    }
+
+    private async Task LoadDirectories(string path)
+    {
+        _currentOsPath = path;
+        _osDirectories = await Connection.GetOSDirectories(path);
+        _selectedDir = "";
+        StateHasChanged();
+    }
+
+    private async Task LoadDownloadDirectories(string path)
+    {
+        _dlOsPath = path;
+        _dlOsDirectories = await Connection.GetOSDirectories(path);
+        StateHasChanged();
+    }
+
+    private async Task LoadShareSizes()
+    {
+        _shareSizes = await Connection.GetShareSizes();
+        StateHasChanged();
+    }
+
+    private void SelectDirectory(string dir)
+    {
+        _selectedDir = dir;
+        if (string.IsNullOrWhiteSpace(_virtualName) && !string.IsNullOrEmpty(dir))
+        {
+            var name = System.IO.Path.GetFileName(dir);
+            if (string.IsNullOrEmpty(name)) name = dir.Replace(":\\", " Drive");
+            _virtualName = name;
+        }
+    }
+
+    private void SelectDownloadDir(string dir) => _dlSelectedDir = dir;
+
+    private void ToggleDownloadBrowser()
+    {
+        _showDlBrowser = !_showDlBrowser;
+        if (_showDlBrowser && string.IsNullOrEmpty(_dlOsPath) && !string.IsNullOrEmpty(_dlSelectedDir)) {
+            _dlOsPath = System.IO.Path.GetDirectoryName(_dlSelectedDir) ?? "";
+            _ = LoadDownloadDirectories(_dlOsPath);
+        }
+    }
+
+    private async Task AddFavorite()
+    {
+        if (!string.IsNullOrWhiteSpace(_newFavUrl))
+        {
+            var name = string.IsNullOrWhiteSpace(_newFavName) ? CleanUrl(_newFavUrl) : _newFavName;
+            await Connection.AddHubFavorite(_newFavUrl, name);
+            _newFavUrl = "";
+            _newFavName = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveFavorite(string url)
+    {
+        await Connection.RemoveHubFavorite(url);
+        StateHasChanged();
+    }
+
+    private async Task DisconnectHub()
+    {
+        await Connection.DisconnectFromGlobalHub();
+    }
+
+    private string CleanUrl(string url)
+    {
+        if (string.IsNullOrEmpty(url)) return "";
+        var clean = url;
+        if (clean.StartsWith("http://", StringComparison.OrdinalIgnoreCase)) clean = clean.Substring(7);
+        if (clean.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) clean = clean.Substring(8);
+        if (clean.EndsWith("/signaling", StringComparison.OrdinalIgnoreCase)) clean = clean.Substring(0, clean.Length - 10);
+        return clean.TrimEnd('/');
+    }
+
+    private async Task SaveNodeName()
+    {
+        if (!string.IsNullOrWhiteSpace(_nodeName))
+        {
+            await Connection.SetNodeName(_nodeName);
+            _settingsMessage = "Node display name updated.";
+            StateHasChanged();
+            await Task.Delay(3000);
+            _settingsMessage = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveDownloadPath()
+    {
+        if (!string.IsNullOrEmpty(_dlSelectedDir))
+        {
+            await Connection.SetDownloadPath(_dlSelectedDir);
+            _settingsMessage = "Download path updated successfully.";
+            _showDlBrowser = false;
+            StateHasChanged();
+            await Task.Delay(3000);
+            _settingsMessage = "";
+            StateHasChanged();
+        }
+    }
+
+    private async Task SaveConnectivitySettings()
+    {
+        await Connection.SetP2PPort(_targetP2PPort);
+        _settingsMessage = "Connectivity settings saved. Some changes may require a restart.";
+        StateHasChanged();
+        await Task.Delay(3000);
+        _settingsMessage = "";
+        StateHasChanged();
+    }
+
+    private async Task NavigateTo(string dir) => await LoadDirectories(dir);
+    private async Task NavigateToDownload(string dir) => await LoadDownloadDirectories(dir);
+    
+    private async Task NavigateUp()
+    {
+        if (string.IsNullOrEmpty(_currentOsPath)) return;
+        var parent = System.IO.Path.GetDirectoryName(_currentOsPath);
+        await LoadDirectories(parent ?? "");
+    }
+
+    private async Task NavigateUpDownload()
+    {
+        if (string.IsNullOrEmpty(_dlOsPath)) return;
+        var parent = System.IO.Path.GetDirectoryName(_dlOsPath);
+        await LoadDownloadDirectories(parent ?? "");
+    }
+
+    private void Refresh() 
+    {
+        _ = LoadShareSizes();
+        InvokeAsync(StateHasChanged);
+    }
+    
+    public void Dispose() => Connection.OnStateChanged -= Refresh;
+
+    private async Task ManualRefresh()
+    {
+        await Connection.RefreshShares();
+    }
+
+    private async Task ShareDir()
+    {
+        if (!string.IsNullOrWhiteSpace(_virtualName) && !string.IsNullOrWhiteSpace(_selectedDir))
+        {
+            await Connection.AddSharedDirectory(_virtualName, _selectedDir);
+            _message = $"Successfully mounted '{_virtualName}'.";
+            _virtualName = "";
+        }
+    }
+
+    private async Task RemoveShare(string name)
+    {
+        await Connection.RemoveSharedDirectory(name);
+        _message = "";
+    }
+
+    private string FormatSize(long bytes)
+    {
+        string[] units = { "B", "KB", "MB", "GB", "TB" };
+        int unit = 0;
+        double size = bytes;
+        while (size >= 1024 && unit < units.Length - 1)
+        {
+            size /= 1024;
+            unit++;
+        }
+        return $"{size:0.0} {units[unit]}";
+    }
+}

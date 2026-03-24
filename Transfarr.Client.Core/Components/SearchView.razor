@@ -1,0 +1,185 @@
+@using Transfarr.Client.Core.Services
+@using Transfarr.Shared.Models
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="display:flex; flex-direction:column; height:100%; gap:20px; font-family:var(--font-family);">
+    <!-- Search Header -->
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:24px; box-shadow:0 4px 12px rgba(0,0,0,0.2);">
+        <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin:0 0 16px 0;">Global Network Search</h2>
+        <div style="display:flex; gap:12px;">
+            <div style="flex:1; position:relative;">
+                <input type="text" @bind="_searchQuery" @bind:event="oninput" @onkeyup="HandleKeyUp"
+                       placeholder="Search for files (e.g. .mkv, .pdf, collection...)"
+                       style="width:100%; padding:12px 16px; background-color:var(--bg-app); border:1px solid var(--border-color); border-radius:4px; color:var(--text-highlight); font-size:15px; outline:none; transition:border-color 0.2s;" />
+                @if (_isSearching)
+                {
+                    <div style="position:absolute; right:12px; top:12px;" class="spinning">⏳</div>
+                }
+            </div>
+            <button class="btn-clean" style="padding:0 32px; font-weight:600; background-color:var(--accent-blue); color:white; border:none; border-radius:4px;" @onclick="StartSearch" disabled="@(string.IsNullOrWhiteSpace(_searchQuery) || _isSearching)">
+                Search
+            </button>
+        </div>
+        <div style="margin-top:12px; font-size:12px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+            <span>Searching across @Connection.OnlinePeers.Count peers (including self)</span>
+            <button class="btn-clean" @onclick="ClearResults" style="font-size:11px; padding:2px 8px; opacity:0.6;">Clear All Results</button>
+        </div>
+    </div>
+
+    <!-- Results Area -->
+    <div style="flex:1; overflow-y:auto; display:flex; flex-direction:column; gap:16px;">
+        @if (!Connection.SearchResults.Any())
+        {
+            <div style="flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-muted); opacity:0.3; padding:64px;">
+                <div style="font-size:80px; margin-bottom:24px;">🔍</div>
+                <div style="font-size:18px; font-weight:300;">Enter a query above to scan the network.</div>
+            </div>
+        }
+        else
+        {
+            @foreach (var group in Connection.SearchResults.GroupBy(r => r.Peer.PeerId))
+            {
+                var peer = group.First().Peer;
+                var isExpanded = !_collapsedPeers.Contains(peer.PeerId);
+                var results = group.ToList();
+
+                <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
+                    <!-- Peer Header -->
+                    <div style="padding:10px 16px; background-color:var(--bg-header); border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; cursor:pointer;" @onclick="() => TogglePeer(peer.PeerId)">
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <span style="font-size:10px; color:var(--text-muted); transition:transform 0.2s; @(isExpanded ? "transform:rotate(90deg);" : "")">▶</span>
+                            <div class="status-dot status-online"></div>
+                            <span style="font-weight:600; color:var(--accent-blue); font-size:13px;">@peer.Name</span>
+                            <span style="font-size:11px; color:var(--text-muted); background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:10px;">@results.Count RESULTS</span>
+                        </div>
+                        <span style="font-size:11px; color:var(--text-muted);">Shared: @FormatSize(peer.SharedBytes)</span>
+                    </div>
+
+                    <!-- Peer Results Table -->
+                    @if (isExpanded)
+                    {
+                        <table style="width:100%; text-align:left; font-size:13px; border-collapse:collapse;">
+                            <thead>
+                                <tr style="background-color:rgba(0,0,0,0.1); border-bottom:1px solid rgba(255,255,255,0.05); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
+                                    <th style="padding:10px 16px; font-weight:600;">Filename</th>
+                                    <th style="padding:10px 16px; font-weight:600; width:120px;">Size</th>
+                                    <th style="padding:10px 16px; font-weight:600; width:100px;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var result in results.OrderByDescending(r => r.File.Size))
+                                {
+                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.02); transition:background-color 0.1s;" class="list-item-row">
+                                        <td style="padding:10px 16px;">
+                                            <div style="display:flex; align-items:center; gap:10px;">
+                                                @if (result.File.IsDirectory)
+                                                {
+                                                    <span style="color:#dcb67a; font-size:16px;">📁</span>
+                                                    <span style="color:var(--text-highlight); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@result.File.Name</span>
+                                                }
+                                                else
+                                                {
+                                                    <span style="color:var(--text-muted); font-size:16px;">📄</span>
+                                                    <span style="color:var(--text-highlight); font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@result.File.Name</span>
+                                                }
+                                            </div>
+                                        </td>
+                                        <td style="padding:10px 16px; color:var(--text-muted); font-family:monospace;">@FormatSize(result.File.Size)</td>
+                                        <td style="padding:10px 16px;">
+                                            @if (result.File.IsDirectory)
+                                            {
+                                                <button class="btn-clean" @onclick="() => Download(result)" style="padding:4px 12px; font-size:11px; border:1px solid rgba(64, 192, 87, 0.4); color:#40c057; background:rgba(64, 192, 87, 0.1); font-weight:600;">
+                                                    Download Folder
+                                                </button>
+                                            }
+                                            else
+                                            {
+                                                <button class="btn-clean" @onclick="() => Download(result)" style="padding:4px 12px; font-size:11px; border:1px solid rgba(255, 255, 255, 0.1); color:var(--text-muted); background:rgba(255, 255, 255, 0.02);">
+                                                    Download
+                                                </button>
+                                            }
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    }
+                </div>
+            }
+        }
+    </div>
+</div>
+
+<style>
+    .list-item-row:hover {
+        background-color: rgba(255,255,255,0.03);
+    }
+</style>
+
+@code {
+    private string _searchQuery = "";
+    private bool _isSearching = false;
+    private HashSet<string> _collapsedPeers = new();
+
+    protected override void OnInitialized()
+    {
+        Connection.OnStateChanged += RefreshUI;
+    }
+
+    private async Task StartSearch()
+    {
+        if (string.IsNullOrWhiteSpace(_searchQuery)) return;
+        
+        _isSearching = true;
+        _collapsedPeers.Clear(); // Expand new results
+        await Connection.PerformSearch(_searchQuery);
+        
+        // Let it "spin" for a bit to show activity
+        _ = Task.Delay(1500).ContinueWith(_ => {
+            _isSearching = false;
+            InvokeAsync(StateHasChanged);
+        });
+    }
+
+    private void HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") _ = StartSearch();
+    }
+
+    private void ClearResults() {
+        Connection.SearchResults.Clear();
+        StateHasChanged();
+    }
+
+    private void TogglePeer(string peerId) {
+        if (_collapsedPeers.Contains(peerId)) _collapsedPeers.Remove(peerId);
+        else _collapsedPeers.Add(peerId);
+    }
+
+    private async Task Download(SearchResult result)
+    {
+        if (result.File.IsDirectory)
+        {
+            await Connection.RequestFolderDownloadByPath(result.Peer.PeerId, result.File.Path);
+        }
+        else
+        {
+            await Connection.AddToDownloadQueue(result.Peer.PeerId, result.File.Name, result.File.Size, result.File.Tth);
+        }
+    }
+
+    private string FormatSize(long bytes)
+    {
+        string[] suffix = { "B", "KB", "MB", "GB", "TB" };
+        int i = 0;
+        double dS = bytes;
+        if (bytes > 1024)
+            for (i = 0; (bytes / 1024) > 0 && i < suffix.Length - 1; i++, bytes /= 1024)
+                dS = bytes / 1024.0;
+        return $"{dS:0.##} {suffix[i]}";
+    }
+
+    public void Dispose() => Connection.OnStateChanged -= RefreshUI;
+    private void RefreshUI() => InvokeAsync(StateHasChanged);
+}

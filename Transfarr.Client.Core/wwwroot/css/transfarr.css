@@ -1,0 +1,150 @@
+:root {
+    --bg-app: #1e1e1e;
+    --bg-panel: #252526;
+    --bg-header: #333333;
+    --bg-hover: #2a2d2e;
+    --bg-active: #37373d;
+    --bg-input: #3c3c3c;
+    
+    --text-main: #cccccc;
+    --text-muted: #858585;
+    --text-highlight: #ffffff;
+    
+    --border-color: #3b3b3b;
+    --accent-blue: #0e639c; /* VS Code style blue */
+    --accent-blue-hover: #1177bb;
+    --accent-green: #4CAF50; /* Success/Online */
+    
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+}
+
+body {
+    background-color: var(--bg-app);
+    color: var(--text-main);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    font-size: 13px; /* Standard VS Code UI scale */
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+::-webkit-scrollbar-thumb {
+    background: #424242;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #4f4f4f;
+}
+
+/* Helpers */
+.input-clean {
+    background-color: var(--bg-input);
+    color: var(--text-main);
+    border: 1px solid transparent;
+    border-radius: 2px;
+    padding: 4px 8px;
+    outline: none;
+}
+.input-clean:focus {
+    border-color: var(--accent-blue);
+}
+
+.btn-clean {
+    background-color: var(--accent-blue);
+    color: white;
+    border: none;
+    border-radius: 2px;
+    padding: 4px 12px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+}
+.btn-clean:hover {
+    background-color: var(--accent-blue-hover);
+}
+.btn-clean:disabled {
+    background-color: #4d4d4d;
+    color: #888888;
+    cursor: not-allowed;
+}
+
+.btn-secondary-clean {
+    background-color: var(--bg-input);
+    color: var(--text-main);
+}
+.btn-secondary-clean:hover {
+    background-color: var(--bg-hover);
+}
+
+/* Tab logic */
+.tab {
+    cursor: pointer;
+    padding: 8px 16px;
+    color: var(--text-muted);
+    border-top: 2px solid transparent;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.tab:hover {
+    color: var(--text-highlight);
+    background-color: var(--bg-hover);
+}
+.tab.active {
+    background-color: var(--bg-app);
+    color: var(--text-highlight);
+    border-top: 2px solid var(--accent-blue);
+}
+
+/* List Item Hover */
+.list-item {
+    padding: 4px 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    border-radius: 3px;
+    user-select: none;
+}
+.list-item:hover {
+    background-color: var(--bg-hover);
+}
+
+/* Table */
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+.data-table th {
+    text-align: left;
+    padding: 6px 12px;
+    color: var(--text-muted);
+    font-weight: 500;
+    border-bottom: 1px solid var(--border-color);
+}
+.data-table td {
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+.data-table tr:hover td {
+    background-color: var(--bg-hover);
+}
+
+/* Status Indicator */
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+}
+.status-online {
+    background-color: var(--accent-green);
+    box-shadow: 0 0 5px var(--accent-green);
+}

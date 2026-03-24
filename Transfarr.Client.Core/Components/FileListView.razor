@@ -1,0 +1,234 @@
+@using Transfarr.Client.Core.Services
+@using Transfarr.Shared.Models
+@using System.Text.Json
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="height:100%; display:flex; flex-direction:column; background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
+    <!-- Header -->
+    <div style="padding:12px 16px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
+        <h2 style="font-size:14px; font-weight:600; color:var(--text-highlight); margin:0; display:flex; align-items:center;">
+            <span class="status-dot status-online" style="margin-right:8px;"></span> @Peer.Name's Shared Files
+        </h2>
+        <div style="display:flex; gap:8px;">
+            <button class="btn-clean" style="padding:4px 8px; font-size:11px;" @onclick="ExpandAll">Expand All</button>
+            <button class="btn-clean" style="padding:4px 8px; font-size:11px;" @onclick="CollapseAll">Collapse All</button>
+            <button class="btn-clean" style="padding:4px 8px; font-size:11px;" @onclick="Refresh">⟳ Refresh</button>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div style="flex:1; overflow-y:auto; padding:8px 0; background-color:var(--bg-app);">
+        @if (_isLoading)
+        {
+            <div style="padding:32px; text-align:center; color:var(--text-muted);">
+                Fetching file list from @Peer.Name...
+            </div>
+        }
+        else if (_error != null)
+        {
+            <div style="padding:16px; margin:16px; background-color:rgba(255,0,0,0.1); border:1px solid red; color:#ff6b6b; border-radius:4px;">
+                Error: @_error
+            </div>
+        }
+        else if (_fileList != null)
+        {
+            <div style="padding:0 8px;">
+                @foreach (var item in _fileList.Items)
+                {
+                    @RenderNode(item)
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public PeerInfo Peer { get; set; } = default!;
+
+    private bool _isLoading = true;
+    private string? _error;
+    private FileList? _fileList;
+    private HashSet<FileListItem> _expandedNodes = new();
+    private HashSet<string> _localTths = new(StringComparer.OrdinalIgnoreCase);
+
+    protected override async Task OnInitializedAsync()
+    {
+        Connection.OnStateChanged += StateChanged;
+        await LoadLocalTths();
+        Connection.OnRawMessageReceived += HandleMessage;
+        await LoadFileList();
+    }
+    
+    private void StateChanged() => InvokeAsync(Refresh);
+    
+    private async Task LoadLocalTths()
+    {
+        _localTths = await Connection.GetLocalTths();
+    }
+
+    private async Task Refresh()
+    {
+        _isLoading = true;
+        _error = null;
+        _fileList = null;
+        _expandedNodes.Clear();
+        await LoadLocalTths();
+        await LoadFileList();
+    }
+
+    private async Task LoadFileList()
+    {
+        try 
+        {
+            if (!Connection.ConnectedPeers.Contains(Peer.PeerId))
+            {
+                await Connection.ConnectToPeer(Peer.PeerId); 
+            }
+            await Connection.SendMessage(Peer.PeerId, "REQ_FILELIST");
+        }
+        catch (Exception ex)
+        {
+            _isLoading = false;
+            _error = "Failed to request filelist: " + ex.Message;
+        }
+    }
+
+    private void HandleMessage(string peerId, string message)
+    {
+        if (peerId == Peer.PeerId && message.StartsWith("RES_FILELIST|"))
+        {
+            var json = message.Substring("RES_FILELIST|".Length);
+            try
+            {
+                _fileList = JsonSerializer.Deserialize<FileList>(json);
+                _isLoading = false;
+                InvokeAsync(StateHasChanged);
+            }
+            catch (Exception ex)
+            {
+                _error = "Failed to parse file list: " + ex.Message;
+                _isLoading = false;
+                InvokeAsync(StateHasChanged);
+            }
+        }
+    }
+
+    private void ToggleFolder(FileListItem item)
+    {
+        if (_expandedNodes.Contains(item)) _expandedNodes.Remove(item);
+        else _expandedNodes.Add(item);
+    }
+
+    private void ExpandAll()
+    {
+        if (_fileList == null) return;
+        foreach (var item in _fileList.Items) Walk(item, i => _expandedNodes.Add(i));
+    }
+
+    private void CollapseAll()
+    {
+        _expandedNodes.Clear();
+    }
+
+    private void Walk(FileListItem item, Action<FileListItem> action)
+    {
+        if (item.IsDirectory)
+        {
+            action(item);
+            if (item.Children != null)
+            {
+                foreach (var child in item.Children) Walk(child, action);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        Connection.OnStateChanged -= StateChanged;
+        Connection.OnRawMessageReceived -= HandleMessage;
+    }
+
+    private async Task DownloadItem(FileListItem item)
+    {
+        if (!item.IsDirectory)
+        {
+            await Connection.AddToDownloadQueue(Peer.PeerId, item.Name, item.Size, item.Tth);
+        }
+    }
+
+    private void DownloadFolder(FileListItem item)
+    {
+        if (item.IsDirectory)
+        {
+            _ = Connection.RequestFolderDownload(Peer.PeerId, item);
+        }
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] suffix = { "B", "KB", "MB", "GB", "TB" };
+        int i = 0;
+        double dS = bytes;
+        if (bytes > 1024)
+            for (i = 0; (bytes / 1024) > 0 && i < suffix.Length - 1; i++, bytes /= 1024)
+                dS = bytes / 1024.0;
+        return $"{dS:0.##} {suffix[i]}";
+    }
+
+    private RenderFragment<FileListItem> RenderNode => item => __builder =>
+    {
+        var isExpanded = _expandedNodes.Contains(item);
+        var hasChildren = item.IsDirectory && item.Children != null && item.Children.Any();
+
+        <div style="display:flex; flex-direction:column;">
+            <div class="list-item" style="justify-content:space-between; margin-bottom:2px; cursor:@(item.IsDirectory ? "pointer" : "default");" @onclick="() => { if(item.IsDirectory) ToggleFolder(item); }">
+                <div style="display:flex; align-items:center; gap:8px;">
+                    @if (item.IsDirectory)
+                    {
+                        <span style="font-size:10px; color:var(--text-muted); width:12px; display:inline-block; transition:transform 0.2s; @(isExpanded ? "transform:rotate(90deg);" : "")">▶</span>
+                        <span style="color:#dcb67a; font-size:16px;">📁</span>
+                    }
+                    else
+                    {
+                        <span style="width:12px;"></span>
+                        <span style="color:var(--text-muted); font-size:16px;">📄</span>
+                    }
+                    <span style="font-size:13px; color:var(--text-highlight);">@item.Name</span>
+                </div>
+                
+                <div style="display:flex; align-items:center; gap:16px;">
+                    @if (!item.IsDirectory && !string.IsNullOrEmpty(item.Tth) && _localTths.Contains(item.Tth))
+                    {
+                        <span style="font-size:10px; color:var(--accent-green); background:rgba(64, 192, 87, 0.1); padding:2px 6px; border-radius:10px; font-weight:600; border:1px solid rgba(64, 192, 87, 0.2);">EXISTING</span>
+                    }
+                    
+                    <span style="font-size:11px; color:var(--text-muted); font-family:monospace;">@FormatBytes(item.Size)</span>
+                    
+                    @if (!item.IsDirectory)
+                    {
+                        <button class="btn-clean" style="padding:2px 8px; font-size:11px;" @onclick="() => DownloadItem(item)" @onclick:stopPropagation>
+                            Download
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="btn-clean" style="padding:2px 8px; font-size:11px; background-color:rgba(64, 192, 87, 0.1); color:#40c057; border:1px solid rgba(64, 192, 87, 0.3);" @onclick="() => DownloadFolder(item)" @onclick:stopPropagation>
+                            Download Folder
+                        </button>
+                    }
+                </div>
+            </div>
+            
+            @if (isExpanded && hasChildren)
+            {
+                <div style="margin-left:20px; border-left:1px solid rgba(255,255,255,0.05); padding-left:12px; display:flex; flex-direction:column;">
+                    @foreach(var child in item.Children!)
+                    {
+                        @RenderNode(child)
+                    }
+                </div>
+            }
+        </div>
+    };
+}
