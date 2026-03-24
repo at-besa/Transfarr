@@ -1,7 +1,7 @@
 services:
   signaling:
     build:
-      context: .
+      context: ..
       dockerfile: Transfarr.Signaling/Dockerfile
     container_name: transfarr-signaling
     ports:

@@ -18,7 +18,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
     public void Start()
     {
         var portStr = db.GetSetting("P2PPort");
-        int targetPort = 0;
+        int targetPort = 5151; // Changed default from 0 to 5151
         if (int.TryParse(portStr, out var p)) targetPort = p;
 
         try 

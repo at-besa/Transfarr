@@ -1,0 +1,17 @@
+services:
+  node:
+    build:
+      context: ..
+      dockerfile: Transfarr.Node/Dockerfile
+    container_name: transfarr-node
+    ports:
+      - "5150:5150"
+      - "5151:5151"
+    volumes:
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+      - ./shares:/app/shares
+    environment:
+      - ASPNETCORE_URLS=http://0.0.0.0:5150
+      - Transfarr__DatabasePath=/app/data/shares.db
+    restart: always

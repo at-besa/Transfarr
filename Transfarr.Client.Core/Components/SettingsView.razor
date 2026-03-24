@@ -129,8 +129,8 @@
             <div style="display:flex; flex-wrap:wrap; gap:24px;">
                 <div style="flex:1; min-width:200px;">
                     <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">P2P Transfer Port (TCP)</label>
-                    <input type="number" @bind="_targetP2PPort" class="input-clean" style="width:100px; padding:8px;" placeholder="0" />
-                    <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Set to <b>0</b> for a random available port. <br/><i>Note: Changing this requires a Node restart.</i></p>
+                    <input type="number" @bind="_targetP2PPort" class="input-clean" style="width:100px; padding:8px;" placeholder="5151" />
+                    <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Default port is <b>5151</b>. Set to 0 for random. <br/><i>Note: Changing this requires a Node restart.</i></p>
                 </div>
                 
                 <div style="flex:1; min-width:200px; border-left:1px solid var(--border-color); padding-left:24px;">
