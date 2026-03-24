@@ -19,7 +19,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         }
 
         // Send Current Node's Self Info (Extension 10)
-        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", 0);
+        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
         await Clients.Caller.SendAsync("SelfStatus", selfInfo);
 
         await Clients.Caller.SendAsync("StateUpdate", node.OnlinePeers);
@@ -35,7 +35,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.All.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
         
         // Update self status after connecting
-        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", 0);
+        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
         await Clients.Caller.SendAsync("SelfStatus", selfInfo);
     }
 

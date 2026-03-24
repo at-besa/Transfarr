@@ -34,6 +34,7 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
     public HashProgressState CurrentProgress { get; } = new();
     public event Action<HashProgressState>? OnHashProgress;
     public event Action? OnFilelistUpdated;
+    public event Action<long>? OnShareSizeChanged; // Added for real-time sync
 
     // Initializer replacement for constructor logic
     public void Initialize()
@@ -64,7 +65,11 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
         {
             sharedDirectories = db.GetDirectories();
             hashCache = db.GetHashCache();
-            logger.LogInfo($"Successfully loaded {sharedDirectories.Count} shares & {hashCache.Count} hashes from SQLite.");
+            
+            // Initialize total size from cache immediately
+            TotalSharedBytes = hashCache.Values.Sum(v => v.Size);
+            
+            logger.LogInfo($"Successfully loaded {sharedDirectories.Count} shares & {hashCache.Count} hashes from SQLite. Initial share size: {TotalSharedBytes / 1024.0 / 1024.0:F2} MB");
         }
         catch (Exception ex)
         {
@@ -195,6 +200,9 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
         CurrentProgress.SpeedMBps = 0;
         OnHashProgress?.Invoke(CurrentProgress);
 
+        long incrementalSharedBytes = 0;
+        DateTime lastUiUpdate = DateTime.MinValue;
+
         try
         {
             var newFileList = new FileList();
@@ -252,17 +260,11 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
                                 tth = cached.Tth;
                                 cacheHitStatus = true;
                             }
-                            else
-                            {
-                                string reason = cached.Size != fileInfo.Length ? "Size mismatch" : "Time mismatch";
-                                logger.LogInfo($"[Cache] Miss for {job.Node.Name}: {reason} (Cached: {cached.Size}/{cached.LastWriteTime.Ticks}, Disk: {fileInfo.Length}/{fileInfo.LastWriteTimeUtc.Ticks})");
-                            }
                         }
                     }
 
                     if (!cacheHitStatus)
                     {
-                        Interlocked.Increment(ref newlyHashedCountAtomic);
                         using var baseStream = File.OpenRead(job.PhysicalPath);
                         using var progressStream = new ProgressStream(baseStream, bytesRead => 
                         {
@@ -288,10 +290,28 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
                     
                     var bag = newFilePaths.GetOrAdd(tth, _ => new ConcurrentBag<string>());
                     bag.Add(job.PhysicalPath);
+
+                    // Make file immediately available for download
+                    lock (filePaths)
+                    {
+                        if (!filePaths.ContainsKey(tth)) filePaths[tth] = new List<string>();
+                        if (!filePaths[tth].Contains(job.PhysicalPath)) filePaths[tth].Add(job.PhysicalPath);
+                    }
                     
                     lock(validPaths) validPaths.Add(job.PhysicalPath);
 
                     CurrentProgress.HashedBytes = Interlocked.Read(ref hashedBytesAtomic);
+                    
+                    // Increment immediate share size availability
+                    long currentHashed = Interlocked.Add(ref incrementalSharedBytes, job.Node.Size);
+                    TotalSharedBytes = currentHashed;
+
+                    // Throttle UI and peer updates during high-speed hashing
+                    if ((DateTime.Now - lastUiUpdate).TotalMilliseconds > 1000)
+                    {
+                        lastUiUpdate = DateTime.Now;
+                        OnShareSizeChanged?.Invoke(TotalSharedBytes);
+                    }
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
@@ -321,7 +341,8 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
             }
             
             localFileList = newFileList;
-            TotalSharedBytes = CurrentProgress.TotalBytes;
+            TotalSharedBytes = incrementalSharedBytes;
+            OnShareSizeChanged?.Invoke(TotalSharedBytes);
 
             CurrentProgress.IsHashing = false;
             CurrentProgress.HashedBytes = CurrentProgress.TotalBytes;

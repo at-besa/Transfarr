@@ -34,8 +34,15 @@ public class SignalingHub : Hub
 
     public async Task JoinAsNode(PeerInfo peer)
     {
-        // Force the connection ID to match the real context
-        var actualPeer = peer with { ConnectionId = Context.ConnectionId };
+        // Detect IP if it was hardcoded to localhost or empty
+        var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+        if (remoteIp == "::1") remoteIp = "127.0.0.1";
+
+        // Force the connection ID and IP to match the real context
+        var actualPeer = peer with { 
+            ConnectionId = Context.ConnectionId,
+            DirectIp = remoteIp 
+        };
         Peers[Context.ConnectionId] = actualPeer;
         
         await Clients.Caller.SendAsync("PeerList", Peers.Values);
@@ -44,7 +51,13 @@ public class SignalingHub : Hub
 
     public async Task UpdateNodeParams(PeerInfo peer)
     {
-        var actualPeer = peer with { ConnectionId = Context.ConnectionId };
+        var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+        if (remoteIp == "::1") remoteIp = "127.0.0.1";
+
+        var actualPeer = peer with { 
+            ConnectionId = Context.ConnectionId,
+            DirectIp = remoteIp 
+        };
         Peers[Context.ConnectionId] = actualPeer;
         await Clients.Others.SendAsync("PeerUpdated", actualPeer);
     }

@@ -18,6 +18,7 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
     
     public string GlobalHubUrl { get; private set; } = string.Empty;
     public bool IsConnectedToGlobalHub => hub?.State == HubConnectionState.Connected;
+    private DateTime lastShareSizeBroadcast = DateTime.MinValue;
 
     public List<PeerInfo> OnlinePeers { get; } = new();
 
@@ -43,6 +44,15 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
             Console.WriteLine($"[GlobalHub] Auto-reconnecting to {lastHub} as {lastUser}...");
             _ = ConnectToGlobalHub(lastHub, lastUser);
         }
+
+        shareManager.OnShareSizeChanged += async (size) => {
+            if ((DateTime.Now - lastShareSizeBroadcast).TotalSeconds > 5)
+            {
+                lastShareSizeBroadcast = DateTime.Now;
+                await BroadcastUpdate();
+            }
+            OnStateChanged?.Invoke();
+        };
 
         await Task.CompletedTask;
     }
@@ -81,7 +91,7 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
         {
             await hub.StartAsync();
             OnStateChanged?.Invoke();
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "127.0.0.1", transferServer.ListenPort);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort);
             await hub.InvokeAsync("JoinAsNode", peerInfo);
         }
         catch (Exception ex)
@@ -148,7 +158,7 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
             var results = shareManager.SearchLocal(req.Query);
             foreach (var res in results)
             {
-                var searchResult = new SearchResult(res, new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "127.0.0.1", transferServer.ListenPort));
+                var searchResult = new SearchResult(res, new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort));
                 await hub.InvokeAsync("SubmitSearchResult", requesterConnId, searchResult);
             }
         });
@@ -240,7 +250,7 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
     {
         if (hub != null && hub.State == HubConnectionState.Connected)
         {
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "127.0.0.1", transferServer.ListenPort);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort);
             await hub.InvokeAsync("UpdateNodeParams", peerInfo);
         }
     }
