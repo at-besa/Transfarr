@@ -101,6 +101,10 @@ logger.OnLog += (entry) => {
     hubContext.Clients.All.SendAsync("SystemLog", entry);
 };
 
+ts.OnUploadsChanged += (uploads) => {
+    hubContext.Clients.All.SendAsync("UploadUpdate", uploads);
+};
+
 
 
 app.MapFallbackToFile("index.html");

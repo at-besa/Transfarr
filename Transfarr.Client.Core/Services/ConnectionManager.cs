@@ -15,6 +15,7 @@ public class ConnectionManager() : IAsyncDisposable
     public ObservableCollection<PeerInfo> OnlinePeers { get; } = new();
     public ObservableCollection<string> ConnectedPeers { get; } = new(); 
     public ObservableCollection<DownloadItem> Queue { get; } = new();
+    public ObservableCollection<UploadItem> ActiveUploads { get; } = new();
     public Dictionary<string, string> SharedDirectories { get; } = new();
     
     public bool IsConnected => hub?.State == HubConnectionState.Connected;
@@ -56,6 +57,13 @@ public class ConnectionManager() : IAsyncDisposable
         {
             Queue.Clear();
             foreach (var doc in docs) Queue.Add(doc);
+            OnStateChanged?.Invoke();
+        });
+
+        hub.On<IEnumerable<UploadItem>>("UploadUpdate", uploads =>
+        {
+            ActiveUploads.Clear();
+            foreach (var up in uploads) ActiveUploads.Add(up);
             OnStateChanged?.Invoke();
         });
 

@@ -24,6 +24,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
 
         await Clients.Caller.SendAsync("StateUpdate", node.OnlinePeers);
         await Clients.Caller.SendAsync("QueueUpdate", downloads.AllItems);
+        await Clients.Caller.SendAsync("UploadUpdate", ts.ActiveUploads.Values.ToList());
         await Clients.Caller.SendAsync("SharesUpdate", shares.GetSharedDirectories());
         await Clients.Caller.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
         await base.OnConnectedAsync();

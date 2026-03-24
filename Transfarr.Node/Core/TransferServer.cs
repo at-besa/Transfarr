@@ -6,6 +6,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text.Json;
+using System.Collections.Concurrent;
+using Transfarr.Shared.Models;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace Transfarr.Node.Core;
 
@@ -14,6 +18,8 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
     private TcpListener? listener;
     
     public int ListenPort { get; private set; }
+    public ConcurrentDictionary<string, UploadItem> ActiveUploads { get; } = new();
+    public event Action<IEnumerable<UploadItem>>? OnUploadsChanged;
 
     public void Start()
     {
@@ -80,16 +86,52 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                         string? filePath = shareManager.GetLocalPathsByTth(tth).FirstOrDefault();
                         if (filePath != null && File.Exists(filePath))
                         {
-                            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read); // Changed from File.OpenRead
-                            fileStream.Seek(offset, SeekOrigin.Begin); // Changed from fs.Position
-                            byte[] buffer = new byte[8192]; // Changed buffer size
-                            long remaining = size;
-                            while (remaining > 0)
+                            var uploadId = Guid.NewGuid().ToString("N");
+                            var upload = new UploadItem 
+                            { 
+                                Id = uploadId, 
+                                FileName = Path.GetFileName(filePath), 
+                                Tth = tth, 
+                                TotalSize = size, 
+                                RemoteIp = client.Client.RemoteEndPoint?.ToString() ?? "Unknown" 
+                            };
+                            
+                            ActiveUploads[uploadId] = upload;
+                            OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
+
+                            try
                             {
-                                int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
-                                if (read == 0) break;
-                                await stream.WriteAsync(buffer.AsMemory(0, read));
-                                remaining -= read;
+                                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                fileStream.Seek(offset, SeekOrigin.Begin);
+                                byte[] buffer = new byte[65536]; // Larger buffer for speed
+                                long remaining = size;
+                                DateTime lastUpdate = DateTime.Now;
+                                long bytesSinceUpdate = 0;
+
+                                while (remaining > 0)
+                                {
+                                    int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
+                                    if (read == 0) break;
+                                    await stream.WriteAsync(buffer.AsMemory(0, read));
+                                    remaining -= read;
+                                    
+                                    upload.BytesTransferred += read;
+                                    bytesSinceUpdate += read;
+
+                                    if ((DateTime.Now - lastUpdate).TotalMilliseconds > 500)
+                                    {
+                                        var elapsed = (DateTime.Now - lastUpdate).TotalSeconds;
+                                        upload.SpeedMBps = (bytesSinceUpdate / 1024.0 / 1024.0) / elapsed;
+                                        bytesSinceUpdate = 0;
+                                        lastUpdate = DateTime.Now;
+                                        OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
+                                    }
+                                }
+                            }
+                            finally
+                            {
+                                ActiveUploads.TryRemove(uploadId, out _);
+                                OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
                             }
                         }
                     }
