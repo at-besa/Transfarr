@@ -172,12 +172,7 @@ else
                     <div class="tab @(_activeTab == "Hub" ? "active" : "")" @onclick='() => SwitchTab("Hub")'>
                         <span style="font-size:14px;">💬</span> Chat & Discovery
                     </div>
-                    @if (Connection.IsConnectedToGlobalHub && !Connection.HubFavorites.Any(f => f.Url == Connection.GlobalHubUrl))
-                    {
-                        <div @onclick="AddCurrentToFavorites" style="padding:8px 12px; cursor:pointer; font-size:11px; color:var(--accent-blue); display:flex; align-items:center; gap:4px;" title="Add current hub to favorites">
-                            ⭐ Add Favorite
-                        </div>
-                    }
+
                     @foreach (var peer in _openTabs)
                     {
                         <div class="tab @(_activeTab == peer.PeerId ? "active" : "")" @onclick="() => SwitchTab(peer.PeerId)">

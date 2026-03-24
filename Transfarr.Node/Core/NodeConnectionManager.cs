@@ -1,16 +1,36 @@
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Hosting;
 using Transfarr.Shared.Models;
 
 namespace Transfarr.Node.Core;
 
-public class NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db) : IHostedService
+public class NodeConnectionManager : IHostedService
 {
     private HubConnection? hub;
     private readonly HttpClient httpClient = new();
-    
+    private readonly ShareManager shareManager;
+    private readonly TransferServer transferServer;
+    private readonly ShareDatabase db;
+    private readonly DownloadManager downloadManager;
+    private readonly SystemLogger logger;
+
+    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger)
+    {
+        this.shareManager = shareManager;
+        this.transferServer = transferServer;
+        this.db = db;
+        this.downloadManager = downloadManager;
+        this.logger = logger;
+        
+        // Link DownloadManager to Hub signaling
+        this.downloadManager.RequestConnectBackAction = async (targetId, hash) => {
+            if (hub?.State == HubConnectionState.Connected)
+                await hub.InvokeAsync("RequestConnectBack", targetId, hash);
+        };
+    }
     public string PeerId { get; } = Guid.NewGuid().ToString("N");
     public string NodeName { get; set; } = "DesktopNode_" + Random.Shared.Next(100, 999);
     
@@ -19,6 +39,9 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
     private DateTime lastShareSizeBroadcast = DateTime.MinValue;
 
     public List<PeerInfo> OnlinePeers { get; } = new();
+    
+    private string _localIp = "127.0.0.1";
+    public bool IsPassive { get; private set; } = false;
 
     public event Action? OnStateChanged;
     public event Action<string, string>? OnFilelistReceived;
@@ -130,7 +153,16 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
         {
             await hub.StartAsync();
             OnStateChanged?.Invoke();
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort);
+
+            // Detect Local IP (via Hub connection info or simple heuristic)
+            // For now we assume the Hub will tell us or we use a basic check
+            // A more advanced Node might use a public IP API.
+            
+            // Perform Connectivity Test
+            bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
+            IsPassive = !isActive;
+            
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, _localIp, transferServer.ListenPort, IsPassive);
             await hub.InvokeAsync("JoinAsNode", peerInfo);
         }
         catch (Exception ex)
@@ -215,6 +247,16 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
             }
         });
 
+        hub.On<string, int, string>("OnConnectBackRequested", async (ip, port, hash) =>
+        {
+            await transferServer.ConnectToPassiveDownloader(ip, port, hash);
+        });
+
+        transferServer.OnReverseConnectionReceived += (client, hash) =>
+        {
+            downloadManager.HandleReverseConnection(client, hash);
+        };
+
         hub.On<string, string>("ReceiveChat", (senderName, message) =>
         {
             OnGlobalChatReceived?.Invoke(senderName, message);
@@ -241,39 +283,65 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
         var targetPeer = OnlinePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
         if (targetPeer == null) return;
         
-        string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
-        int port = targetPeer.TransferPort;
-        if (port == 0) return;
+        TcpClient client;
+        Stream stream;
+        
+        if (targetPeer.IsPassive)
+        {
+            logger.LogInfo($"[Node] Peer {targetPeer.Name} is passive. Requesting ConnectBack for filelist...");
+            var tcs = new TaskCompletionSource<TcpClient>();
+            downloadManager.HandleReverseConnectionRequest("ADL_LIST", tcs);
+            
+            if (hub?.State == HubConnectionState.Connected)
+                await hub.InvokeAsync("RequestConnectBack", targetPeerId, "ADL_LIST");
+                
+            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+            if (completedTask != tcs.Task) return;
+            
+            client = await tcs.Task;
+            stream = client.GetStream();
+        }
+        else
+        {
+            string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
+            int port = targetPeer.TransferPort;
+            if (port == 0) return;
+
+            client = new TcpClient();
+            await client.ConnectAsync(ip, port);
+            stream = client.GetStream();
+        }
 
         try 
         {
-            using var client = new System.Net.Sockets.TcpClient();
-            await client.ConnectAsync(ip, port);
-            using var stream = client.GetStream();
-            using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
-            
-            await writer.WriteLineAsync("REQ_LIST|");
-            await writer.FlushAsync();
-            
-            byte[] lenBuffer = new byte[4];
-            int bytesRead = 0;
-            while(bytesRead < 4) {
-                int r = await stream.ReadAsync(lenBuffer.AsMemory(bytesRead, 4 - bytesRead));
-                if (r == 0) return;
-                bytesRead += r;
+            using (client)
+            using (stream)
+            {
+                using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
+                
+                await writer.WriteLineAsync("REQ_LIST|");
+                await writer.FlushAsync();
+                
+                byte[] lenBuffer = new byte[4];
+                int bytesRead = 0;
+                while(bytesRead < 4) {
+                    int r = await stream.ReadAsync(lenBuffer.AsMemory(bytesRead, 4 - bytesRead));
+                    if (r == 0) return;
+                    bytesRead += r;
+                }
+                int length = BitConverter.ToInt32(lenBuffer, 0);
+                
+                byte[] dataBuffer = new byte[length];
+                bytesRead = 0;
+                while(bytesRead < length) {
+                    int r = await stream.ReadAsync(dataBuffer.AsMemory(bytesRead, length - bytesRead));
+                    if (r == 0) return;
+                    bytesRead += r;
+                }
+                
+                string json = System.Text.Encoding.UTF8.GetString(dataBuffer);
+                OnFilelistReceived?.Invoke(targetPeerId, json);
             }
-            int length = BitConverter.ToInt32(lenBuffer, 0);
-            
-            byte[] dataBuffer = new byte[length];
-            bytesRead = 0;
-            while(bytesRead < length) {
-                int r = await stream.ReadAsync(dataBuffer.AsMemory(bytesRead, length - bytesRead));
-                if (r == 0) return;
-                bytesRead += r;
-            }
-            
-            string json = System.Text.Encoding.UTF8.GetString(dataBuffer);
-            OnFilelistReceived?.Invoke(targetPeerId, json);
         } catch { }
     }
 
@@ -289,7 +357,7 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
     {
         if (hub != null && hub.State == HubConnectionState.Connected)
         {
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, _localIp, transferServer.ListenPort, IsPassive);
             await hub.InvokeAsync("UpdateNodeParams", peerInfo);
         }
     }

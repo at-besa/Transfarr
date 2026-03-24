@@ -3,136 +3,91 @@
 @inject NetworkStateService NetworkState
 @implements IDisposable
 
-<PageTitle>Transfarr Hub Admin</PageTitle>
+<PageTitle>Dashboard - Transfarr Hub</PageTitle>
 
-<div class="container-fluid py-4">
-    <div class="row g-4 mb-4">
-        <!-- Row 1 -->
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-primary text-white p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-1">🌐</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Active Nodes</div>
-                        <div class="fs-2 fw-bold">@NetworkState.GetActiveNodeCount()</div>
-                        <div class="small opacity-50">Peak: @NetworkState.PeakUserCount</div>
-                    </div>
-                </div>
-            </div>
+<div style="max-width: 1200px; margin: 0 auto;">
+    <div style="margin-bottom: 32px;">
+        <h2 style="font-size: 24px; font-weight: 300; color: var(--text-highlight); margin: 0 0 8px 0;">Network Overview</h2>
+        <p style="color: var(--text-muted); font-size: 13px; margin: 0;">Real-time signaling and performance metrics for the active cluster.</p>
+    </div>
+
+    <!-- Metrics Grid -->
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 40px;">
+        <div class="stat-card">
+            <div class="stat-label">Active Nodes</div>
+            <div class="stat-value">@NetworkState.GetActiveNodeCount()</div>
+            <div class="stat-sub">Peak: @NetworkState.PeakUserCount concurrent</div>
         </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-success text-white p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-1">📦</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Share Size</div>
-                        <div class="fs-2 fw-bold">@FormatSize(NetworkState.GetTotalSharedBytes())</div>
-                        <div class="small opacity-50">Peak: @FormatSize(NetworkState.PeakTotalSharedBytes)</div>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-label">Network Share</div>
+            <div class="stat-value">@FormatSize(NetworkState.GetTotalSharedBytes())</div>
+            <div class="stat-sub">Peak: @FormatSize(NetworkState.PeakTotalSharedBytes)</div>
         </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-warning text-dark p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-1">🚀</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Global Rate</div>
-                        <div class="fs-2 fw-bold">@FormatRate(NetworkState.CurrentTransferRateBps)</div>
-                        <div class="small opacity-75">Avg: @NetworkState.GetActiveNodeCount() nodes</div>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-label">Global Rate</div>
+            <div class="stat-value">@FormatRate(NetworkState.CurrentTransferRateBps)</div>
+            <div class="stat-sub">Across @NetworkState.GetActiveNodeCount() verified nodes</div>
         </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-info text-white p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-1">⏱️</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Uptime</div>
-                        <div class="fs-2 fw-bold">@_uptime</div>
-                        <div class="small opacity-50">Since @NetworkState.StartupTime.ToLocalTime()</div>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-label">System Uptime</div>
+            <div class="stat-value">@_uptime</div>
+            <div class="stat-sub">Started @NetworkState.StartupTime.ToLocalTime().ToString("MMM dd, HH:mm")</div>
         </div>
     </div>
 
-    <div class="row g-4 mb-5">
-        <!-- Row 2 -->
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-secondary text-white p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2">📊</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Total Transferred</div>
-                        <div class="fs-4 fw-bold">@FormatSize(NetworkState.TotalBytesTransferred)</div>
-                    </div>
-                </div>
-            </div>
+    <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 40px;">
+        <div class="stat-card">
+            <div class="stat-label">Total Volume</div>
+            <div class="stat-value" style="font-size: 18px;">@FormatSize(NetworkState.TotalBytesTransferred)</div>
         </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-dark text-white p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2">🔑</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Logins</div>
-                        <div class="fs-4 fw-bold">@NetworkState.LoginAttempts</div>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-label">Login Success</div>
+            <div class="stat-value" style="font-size: 18px; color: var(--accent-green);">@NetworkState.LoginAttempts</div>
         </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-danger text-white p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2">⚠️</div>
-                    <div>
-                        <div class="fw-bold opacity-75">Error Count</div>
-                        <div class="fs-4 fw-bold">@NetworkState.TotalErrors</div>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-label">Error Count</div>
+            <div class="stat-value" style="font-size: 18px; color: var(--accent-red);">@NetworkState.TotalErrors</div>
         </div>
-        <div class="col-md-3">
-            <div class="card shadow-sm border-0 bg-light p-3 h-100">
-                <div class="d-flex align-items-center gap-3">
-                    <div class="fs-2">👤</div>
-                    <div>
-                        <div class="fw-bold text-muted">Avg Share/User</div>
-                        <div class="fs-4 fw-bold">@GetAvgShare()</div>
-                    </div>
-                </div>
-            </div>
+        <div class="stat-card">
+            <div class="stat-label">Avg Share / Node</div>
+            <div class="stat-value" style="font-size: 18px;">@GetAvgShare()</div>
         </div>
     </div>
 
-    <!-- Active Peers Table -->
-    <div class="card shadow-sm border-0 mt-4">
-        <div class="card-header bg-white border-0 py-3">
-            <h5 class="mb-0 fw-bold text-dark">Active Global Peers</h5>
+    <!-- Peers Table -->
+    <div style="margin-bottom: 40px;">
+        <div style="margin-bottom: 16px; display: flex; align-items: center; justify-content: space-between;">
+            <h3 style="font-size: 16px; font-weight: 500; color: var(--text-highlight); margin: 0;">Connected Verified Peers</h3>
+            <span class="badge-clean badge-blue">ALL CLUSTERS</span>
         </div>
-        <div class="card-body p-0">
-            <table class="table table-hover mb-0">
-                <thead class="bg-light">
+        <div class="panel" style="overflow: hidden;">
+            <table class="data-table">
+                <thead>
                     <tr>
-                        <th class="ps-4">Peer Name</th>
-                        <th>Connection ID</th>
-                        <th>IP Address</th>
-                        <th>Shared Bytes</th>
-                        <th class="pe-4 text-end">Identity</th>
+                        <th>PEER NAME</th>
+                        <th>IP ADDRESS</th>
+                        <th>SHARED SIZE</th>
+                        <th>CONNECTED SINCE</th>
+                        <th style="text-align: right;">STATUS</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach (var peer in NetworkState.ActivePeers)
                     {
                         <tr>
-                            <td class="ps-4 fw-bold text-primary">@peer.Name</td>
-                            <td class="text-muted small">@peer.ConnectionId</td>
-                            <td>@peer.DirectIp</td>
+                            <td style="color: var(--text-highlight); font-weight: 600;">@peer.Name</td>
+                            <td style="font-family: monospace; font-size: 12px;">@peer.DirectIp</td>
                             <td>@FormatSize(peer.SharedBytes)</td>
-                            <td class="pe-4 text-end">
-                                <span class="badge bg-primary rounded-pill">VERIFIED</span>
+                            <td style="color: var(--text-muted);">Dynamic</td>
+                            <td style="text-align: right;">
+                                <span class="badge-clean badge-green">VERIFIED</span>
                             </td>
+                        </tr>
+                    }
+                    @if (!NetworkState.ActivePeers.Any())
+                    {
+                        <tr>
+                            <td colspan="5" style="text-align: center; padding: 40px; color: var(--text-muted);">No peers currently connected to the signaling hub.</td>
                         </tr>
                     }
                 </tbody>

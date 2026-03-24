@@ -1,80 +1,66 @@
 @inherits LayoutComponentBase
 
-<div class="page">
-    <div class="sidebar">
-        <div class="top-row ps-3 navbar navbar-dark">
-            <div class="container-fluid">
-                <a class="navbar-brand" href="">Transfarr Hub Admin</a>
+<div class="page" style="display: flex; height: 100vh;">
+    <!-- Sidebar -->
+    <div class="sidebar" style="width: 240px; background-color: var(--bg-panel); border-right: 1px solid var(--border-color); display: flex; flex-direction: column;">
+        <div style="padding: 24px; border-bottom: 1px solid var(--border-color); display: flex; align-items: center; gap: 12px;">
+            <div style="width: 32px; height: 32px; background: var(--accent-blue); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white;">T</div>
+            <div>
+                <div style="font-size: 14px; font-weight: 600; color: var(--text-highlight);">Transfarr</div>
+                <div style="font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">Signaling Hub</div>
             </div>
         </div>
 
-        <nav class="flex-column">
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                    <span class="bi bi-house-door-fill" aria-hidden="true"></span> Dashboard
-                </NavLink>
-            </div>
-            <div class="nav-item px-3">
-                <NavLink class="nav-link" href="users">
-                    <span class="bi bi-people-fill" aria-hidden="true"></span> User Management
-                </NavLink>
-            </div>
+        <nav style="flex: 1; padding-top: 16px;">
+            <NavLink class="nav-item" href="" Match="NavLinkMatch.All">
+                <span style="font-size: 16px;">📊</span> Dashboard
+            </NavLink>
+            <NavLink class="nav-item" href="users">
+                <span style="font-size: 16px;">👥</span> User Management
+            </NavLink>
         </nav>
+
+        <div style="padding: 16px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-muted);">
+            Hub v1.0.0-alpha<br />
+            © 2026 at-besa
+        </div>
     </div>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://github.com/at-besa/Transfarr" target="_blank">About Transfarr</a>
+    <!-- Main Content -->
+    <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background-color: var(--bg-app);">
+        <div class="top-bar">
+            <div style="font-weight: 600; color: var(--text-highlight);">ADMIN CONSOLE</div>
+            <div class="d-flex align-items-center gap-3">
+                <span class="badge-clean badge-blue">CONNECTED</span>
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: #444; display: flex; align-items: center; justify-content: center; font-size: 14px;">A</div>
+            </div>
         </div>
 
-        <article class="content px-4">
+        <div style="flex: 1; overflow-y: auto; padding: 32px;">
             @Body
-        </article>
-    </main>
+        </div>
+    </div>
 </div>
 
 <style>
-    .page {
-        position: relative;
-        display: flex;
-        flex-direction: row;
-        height: 100vh;
-    }
-
-    main {
-        flex: 1;
-        overflow-y: auto;
-    }
-
-    .sidebar {
-        background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
-        width: 250px;
-        color: white;
-    }
-
-    .top-row {
-        background-color: #f7f7f7;
-        border-bottom: 1px solid #d6d5d5;
-        justify-content: flex-end;
-        height: 3.5rem;
-        display: flex;
-        align-items: center;
-    }
-
     .nav-item {
-        font-size: 0.9rem;
-        padding-bottom: 0.5rem;
-    }
-
-    .nav-link {
-        color: #d7d7d7;
+        padding: 12px 24px;
+        color: var(--text-muted);
+        text-decoration: none !important;
         display: flex;
         align-items: center;
-        line-height: 3rem;
+        gap: 12px;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.2s ease;
     }
-
-    .nav-link.active {
-        background-color: rgba(255,255,255,0.25);
-        color: white;
+    .nav-item:hover {
+        color: var(--text-highlight);
+        background-color: var(--bg-hover);
+    }
+    .nav-item.active {
+        color: var(--text-highlight);
+        background-color: var(--bg-active);
+        border-left: 3px solid var(--accent-blue);
     }
 </style>

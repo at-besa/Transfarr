@@ -14,9 +14,11 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
 {
     private readonly ConcurrentDictionary<string, DownloadItem> items = new();
     private readonly ConcurrentDictionary<string, DownloadItem> activeDownloads = new();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<TcpClient>> pendingReverseConnections = new();
     private readonly System.Diagnostics.Stopwatch progressStopwatch = System.Diagnostics.Stopwatch.StartNew();
     private long lastProgressTicks = 0;
     
+    public Func<string, string, Task>? RequestConnectBackAction { get; set; }
     public event Action? OnQueueChanged;
 
     public List<DownloadItem> AllItems => items.Values.ToList();
@@ -114,42 +116,70 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
 
         try
         {
-            string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
-            int port = targetPeer.TransferPort;
-            if (port == 0) return;
+            TcpClient client;
+            Stream stream;
+            
+            if (targetPeer.IsPassive)
+            {
+                logger.LogInfo($"[Download] Peer {targetPeer.Name} is passive. Requesting ConnectBack for directory {virtualPath}...");
+                var tcs = new TaskCompletionSource<TcpClient>();
+                var reqId = "ADL_DIR_" + virtualPath.GetHashCode();
+                HandleReverseConnectionRequest(reqId, tcs);
+                
+                if (RequestConnectBackAction != null)
+                {
+                    await RequestConnectBackAction(targetPeer.PeerId, reqId);
+                }
+                
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                if (completedTask != tcs.Task) return;
+                
+                client = await tcs.Task;
+                stream = client.GetStream();
+            }
+            else
+            {
+                string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
+                int port = targetPeer.TransferPort;
+                if (port == 0) return;
 
-            using var client = new TcpClient();
-            await client.ConnectAsync(ip, port);
-            using var stream = client.GetStream();
-            using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
-            
-            await writer.WriteLineAsync($"REQ_DIR|{virtualPath}");
-            await writer.FlushAsync();
-            
-            byte[] lenBuffer = new byte[4];
-            int br = 0;
-            while(br < 4) {
-                int r = await stream.ReadAsync(lenBuffer.AsMemory(br, 4 - br));
-                if (r == 0) return;
-                br += r;
+                client = new TcpClient();
+                await client.ConnectAsync(ip, port);
+                stream = client.GetStream();
             }
-            int len = BitConverter.ToInt32(lenBuffer, 0);
-            
-            byte[] data = new byte[len];
-            int totalRead = 0;
-            while (totalRead < len)
+
+            using (client)
+            using (stream)
             {
-                int r = await stream.ReadAsync(data.AsMemory(totalRead, len - totalRead));
-                if (r == 0) break;
-                totalRead += r;
-            }
-            
-            var json = Encoding.UTF8.GetString(data);
-            var folder = System.Text.Json.JsonSerializer.Deserialize<FileListItem>(json);
-            if (folder != null)
-            {
-                // We want the folder itself to be at the root of the downloads, not its parents
-                AddFolderToQueue(targetPeer, folder, "");
+                using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+                
+                await writer.WriteLineAsync($"REQ_DIR|{virtualPath}");
+                await writer.FlushAsync();
+                
+                byte[] lenBuffer = new byte[4];
+                int br = 0;
+                while(br < 4) {
+                    int r = await stream.ReadAsync(lenBuffer.AsMemory(br, 4 - br));
+                    if (r == 0) return;
+                    br += r;
+                }
+                int len = BitConverter.ToInt32(lenBuffer, 0);
+                
+                byte[] data = new byte[len];
+                int totalRead = 0;
+                while (totalRead < len)
+                {
+                    int r = await stream.ReadAsync(data.AsMemory(totalRead, len - totalRead));
+                    if (r == 0) break;
+                    totalRead += r;
+                }
+                
+                var json = Encoding.UTF8.GetString(data);
+                var folder = System.Text.Json.JsonSerializer.Deserialize<FileListItem>(json);
+                if (folder != null)
+                {
+                    AddFolderToQueue(targetPeer, folder, "");
+                }
             }
         }
         catch (Exception ex)
@@ -174,6 +204,24 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 _ = DownloadFileAsync(item);
             }
         }
+    }
+
+    public void HandleReverseConnection(TcpClient client, string fileHash)
+    {
+        if (pendingReverseConnections.TryRemove(fileHash, out var tcs))
+        {
+            tcs.TrySetResult(client);
+        }
+        else
+        {
+            // No one is waiting for this? Close it.
+            client.Dispose();
+        }
+    }
+
+    public void HandleReverseConnectionRequest(string identifier, TaskCompletionSource<TcpClient> tcs)
+    {
+        pendingReverseConnections[identifier] = tcs;
     }
 
     private async Task DownloadFileAsync(DownloadItem item)
@@ -207,21 +255,58 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             
             fs.Seek(item.BytesDownloaded, SeekOrigin.Begin);
 
-            string ip = string.IsNullOrEmpty(item.TargetPeer.DirectIp) ? "127.0.0.1" : item.TargetPeer.DirectIp;
-            int port = item.TargetPeer.TransferPort;
-            if (port == 0) throw new Exception("Remote peer has no active transfer port.");
+            TcpClient client;
+            Stream stream;
 
-            using var client = new TcpClient();
-            await client.ConnectAsync(ip, port);
+            if (item.TargetPeer.IsPassive)
+            {
+                logger.LogInfo($"[Download] Peer {item.TargetPeer.Name} is passive. Requesting ConnectBack...");
+                var tcs = new TaskCompletionSource<TcpClient>();
+                pendingReverseConnections[item.Tth] = tcs;
+
+                if (RequestConnectBackAction != null)
+                {
+                    await RequestConnectBackAction(item.TargetPeerId, item.Tth);
+                }
+
+                // Wait for the reverse connection
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                if (completedTask != tcs.Task)
+                {
+                    pendingReverseConnections.TryRemove(item.Tth, out _);
+                    throw new Exception("Timeout waiting for uploader to connect back.");
+                }
+
+                client = await tcs.Task;
+                stream = client.GetStream();
+                
+                // Now that we have the reverse connection, we must send the REQ_FILE command
+                // so the uploader (performing ConnectBack) knows what to send.
+                var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+                long bytesRemaining = item.FileSize - item.BytesDownloaded;
+                await writer.WriteLineAsync($"REQ_FILE|{item.Tth}|{item.BytesDownloaded}|{bytesRemaining}");
+                await writer.FlushAsync();
+            }
+            else
+            {
+                string ip = string.IsNullOrEmpty(item.TargetPeer.DirectIp) ? "127.0.0.1" : item.TargetPeer.DirectIp;
+                int port = item.TargetPeer.TransferPort;
+                if (port == 0) throw new Exception("Remote peer has no active transfer port.");
+
+                client = new TcpClient();
+                await client.ConnectAsync(ip, port);
+                stream = client.GetStream();
+                
+                using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+                long bytesRemaining = item.FileSize - item.BytesDownloaded;
+                await writer.WriteLineAsync($"REQ_FILE|{item.Tth}|{item.BytesDownloaded}|{bytesRemaining}");
+                await writer.FlushAsync();
+            }
             
-            using var stream = client.GetStream();
-            using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
-            
-            long bytesRemaining = item.FileSize - item.BytesDownloaded;
-            await writer.WriteLineAsync($"REQ_FILE|{item.Tth}|{item.BytesDownloaded}|{bytesRemaining}");
-            await writer.FlushAsync();
-            
-            byte[] buffer = new byte[81920];
+            using (client)
+            using (stream)
+            {
+                byte[] buffer = new byte[81920];
             int read;
             bool wasAborted = false;
 
@@ -272,6 +357,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 item.Status = "Error (Incomplete)";
                 logger.LogWarning($"[Download] Incomplete: {item.FileName} ({item.BytesDownloaded}/{item.FileSize} bytes)");
                 CompleteDownload(item);
+            }
             }
         }
         catch(Exception ex)

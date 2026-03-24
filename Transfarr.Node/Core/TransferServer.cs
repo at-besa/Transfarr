@@ -21,6 +21,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
     public ConcurrentDictionary<string, UploadItem> ActiveUploads { get; } = new();
     public event Action<IEnumerable<UploadItem>>? OnUploadsChanged;
     public event Action<long>? OnUploadComplete;
+    public event Action<TcpClient, string>? OnReverseConnectionReceived;
 
     public void Start()
     {
@@ -87,86 +88,153 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                         string? filePath = shareManager.GetLocalPathsByTth(tth).FirstOrDefault();
                         if (filePath != null && File.Exists(filePath))
                         {
-                            var uploadId = Guid.NewGuid().ToString("N");
-                            var upload = new UploadItem 
-                            { 
-                                Id = uploadId, 
-                                FileName = Path.GetFileName(filePath), 
-                                Tth = tth, 
-                                TotalSize = size, 
-                                RemoteIp = client.Client.RemoteEndPoint?.ToString() ?? "Unknown" 
-                            };
-                            
-                            ActiveUploads[uploadId] = upload;
-                            OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
-
-                            try
-                            {
-                                using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                                fileStream.Seek(offset, SeekOrigin.Begin);
-                                byte[] buffer = new byte[65536]; // Larger buffer for speed
-                                long remaining = size;
-                                DateTime lastUpdate = DateTime.Now;
-                                long bytesSinceUpdate = 0;
-
-                                while (remaining > 0)
-                                {
-                                    int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
-                                    if (read == 0) break;
-                                    await stream.WriteAsync(buffer.AsMemory(0, read));
-                                    remaining -= read;
-                                    
-                                    upload.BytesTransferred += read;
-                                    bytesSinceUpdate += read;
-
-                                    if ((DateTime.Now - lastUpdate).TotalMilliseconds > 500)
-                                    {
-                                        var elapsed = (DateTime.Now - lastUpdate).TotalSeconds;
-                                        upload.SpeedMBps = (bytesSinceUpdate / 1024.0 / 1024.0) / elapsed;
-                                        bytesSinceUpdate = 0;
-                                        lastUpdate = DateTime.Now;
-                                        OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
-                                    }
-                                }
-
-                                if (remaining == 0)
-                                {
-                                    OnUploadComplete?.Invoke(size);
-                                }
-                            }
-                            finally
-                            {
-                                ActiveUploads.TryRemove(uploadId, out _);
-                                OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
-                            }
+                            await SendFileContentAsync(stream, filePath, offset, size, tth, client.Client.RemoteEndPoint?.ToString() ?? "Unknown");
                         }
                     }
                 }
-                else if (requestLine.StartsWith("REQ_DIR|")) // Added REQ_DIR handler
+                else if (requestLine.StartsWith("REQ_DIR|"))
                 {
                     var path = requestLine.Substring("REQ_DIR|".Length);
-                    var item = shareManager.GetFileListItemByPath(path);
-                    if (item != null)
-                    {
-                        var json = JsonSerializer.Serialize(item);
-                        byte[] data = System.Text.Encoding.UTF8.GetBytes(json);
-                        byte[] len = BitConverter.GetBytes(data.Length);
-                        await stream.WriteAsync(len);
-                        await stream.WriteAsync(data);
-                    }
+                    await SendDirectoryListAsync(stream, path);
                 }
-                else if (requestLine == "REQ_LIST|")
+                else if (requestLine.StartsWith("CB_READY|"))
                 {
-                    string json = shareManager.GetLocalFileListJson();
-                    byte[] data = Encoding.UTF8.GetBytes(json);
-                    await stream.WriteAsync(BitConverter.GetBytes(data.Length).AsMemory());
-                    await stream.WriteAsync(data.AsMemory());
+                    var hash = requestLine.Split('|')[1];
+                    OnReverseConnectionReceived?.Invoke(client, hash);
+                    return; // Handed off to DownloadManager, do not dispose here
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[TransferServer] Client handle error: {ex.Message}");
             }
+        }
+    }
+
+    private async Task SendFullFileListAsync(Stream stream)
+    {
+        string json = shareManager.GetLocalFileListJson();
+        byte[] data = Encoding.UTF8.GetBytes(json);
+        await stream.WriteAsync(BitConverter.GetBytes(data.Length).AsMemory());
+        await stream.WriteAsync(data.AsMemory());
+    }
+
+    private async Task SendDirectoryListAsync(Stream stream, string path)
+    {
+        var item = shareManager.GetFileListItemByPath(path);
+        if (item != null)
+        {
+            var json = JsonSerializer.Serialize(item);
+            byte[] data = Encoding.UTF8.GetBytes(json);
+            byte[] len = BitConverter.GetBytes(data.Length);
+            await stream.WriteAsync(len);
+            await stream.WriteAsync(data);
+        }
+    }
+
+    private async Task SendFileContentAsync(Stream stream, string filePath, long offset, long size, string tth, string remoteIp)
+    {
+        var uploadId = Guid.NewGuid().ToString("N");
+        var upload = new UploadItem
+        {
+            Id = uploadId,
+            FileName = Path.GetFileName(filePath),
+            Tth = tth,
+            TotalSize = size,
+            RemoteIp = remoteIp
+        };
+
+        ActiveUploads[uploadId] = upload;
+        OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
+
+        try
+        {
+            using var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            fileStream.Seek(offset, SeekOrigin.Begin);
+            byte[] buffer = new byte[65536];
+            long remaining = size;
+            DateTime lastUpdate = DateTime.Now;
+            long bytesSinceUpdate = 0;
+
+            while (remaining > 0)
+            {
+                int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
+                if (read == 0) break;
+                await stream.WriteAsync(buffer.AsMemory(0, read));
+                remaining -= read;
+
+                upload.BytesTransferred += read;
+                bytesSinceUpdate += read;
+
+                if ((DateTime.Now - lastUpdate).TotalMilliseconds > 500)
+                {
+                    var elapsed = (DateTime.Now - lastUpdate).TotalSeconds;
+                    upload.SpeedMBps = (bytesSinceUpdate / 1024.0 / 1024.0) / elapsed;
+                    bytesSinceUpdate = 0;
+                    lastUpdate = DateTime.Now;
+                    OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
+                }
+            }
+
+            if (remaining == 0)
+            {
+                OnUploadComplete?.Invoke(size);
+            }
+        }
+        finally
+        {
+            ActiveUploads.TryRemove(uploadId, out _);
+            OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
+        }
+    }
+
+    public async Task ConnectToPassiveDownloader(string ip, int port, string fileHash)
+    {
+        try
+        {
+            Console.WriteLine($"[TransferServer] Initiating ConnectBack to {ip}:{port} for {fileHash}...");
+            using var client = new TcpClient();
+            await client.ConnectAsync(ip, port);
+            using var stream = client.GetStream();
+            using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+
+            // Notify the downloader that we are responding to their ConnectBack request
+            await writer.WriteLineAsync($"CB_READY|{fileHash}");
+            await writer.FlushAsync();
+
+            // Wait for the downloader to send the actually desired request
+            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+            var reqLine = await reader.ReadLineAsync();
+            if (reqLine == null) return;
+
+            if (reqLine.StartsWith("REQ_FILE|"))
+            {
+                var parts = reqLine.Split('|');
+                if (parts.Length == 4)
+                {
+                    long offset = long.Parse(parts[2]);
+                    long size = long.Parse(parts[3]);
+
+                    string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
+                    if (filePath != null && File.Exists(filePath))
+                    {
+                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip);
+                    }
+                }
+            }
+            else if (reqLine == "REQ_LIST|")
+            {
+                await SendFullFileListAsync(stream);
+            }
+            else if (reqLine.StartsWith("REQ_DIR|"))
+            {
+                var path = reqLine.Substring("REQ_DIR|".Length);
+                await SendDirectoryListAsync(stream, path);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TransferServer] ConnectBack failed: {ex.Message}");
         }
     }
 }
