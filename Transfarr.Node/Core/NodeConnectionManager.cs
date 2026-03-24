@@ -331,8 +331,18 @@ public class NodeConnectionManager : IHostedService
             int port = targetPeer.TransferPort;
             if (port == 0) return;
 
+            logger.LogInfo($"[Node] Attempting direct TCP connection to {targetPeer.Name} at {ip}:{port}...");
             client = new TcpClient();
-            await client.ConnectAsync(ip, port);
+            try
+            {
+                await client.ConnectAsync(ip, port);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError($"[Node] Failed to connect to {targetPeer.Name} ({ip}:{port}): {ex.Message}");
+                client.Dispose();
+                return;
+            }
             stream = client.GetStream();
         }
 

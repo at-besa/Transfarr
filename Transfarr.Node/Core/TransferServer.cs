@@ -97,6 +97,10 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                     var path = requestLine.Substring("REQ_DIR|".Length);
                     await SendDirectoryListAsync(stream, path);
                 }
+                else if (requestLine == "REQ_LIST|")
+                {
+                    await SendFullFileListAsync(stream);
+                }
                 else if (requestLine.StartsWith("CB_READY|"))
                 {
                     var hash = requestLine.Split('|')[1];
