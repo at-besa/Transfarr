@@ -29,6 +29,7 @@ public class ConnectionManager() : IAsyncDisposable
     public string DefaultNodeName { get; private set; } = "";   
     public int ConnectivityMode { get; private set; } = 0; // 0=Auto, 1=Active, 2=Passive
     public HashProgressState CurrentHashProgress { get; private set; } = new();
+    public string? ManualPublicIp { get; private set; }
     
     public ObservableCollection<LogEntry> SystemLogs { get; } = new();
     public ObservableCollection<SearchResult> SearchResults { get; } = new();
@@ -140,6 +141,12 @@ public class ConnectionManager() : IAsyncDisposable
         hub.On<int>("ConnectivityModeUpdate", mode =>
         {
             ConnectivityMode = mode;
+            OnStateChanged?.Invoke();
+        });
+
+        hub.On<string?>("ManualPublicIpUpdate", ip =>
+        {
+            ManualPublicIp = ip;
             OnStateChanged?.Invoke();
         });
 
@@ -349,6 +356,19 @@ public class ConnectionManager() : IAsyncDisposable
     {
         if (hub?.State == HubConnectionState.Connected)
             await hub.InvokeAsync("SetConnectivityMode", mode);
+    }
+
+    public async Task<string?> GetManualPublicIp()
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            return await hub.InvokeAsync<string?>("GetManualPublicIp");
+        return null;
+    }
+
+    public async Task SetManualPublicIp(string? ip)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("SetManualPublicIp", ip);
     }
 
     public async Task<int> GetP2PPort()

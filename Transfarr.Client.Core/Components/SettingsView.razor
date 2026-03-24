@@ -142,6 +142,12 @@
                     </select>
                     <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Choose <b>Passive</b> if you cannot forward ports. <br/><i>Current: @(Connection.LocalPeer?.IsPassive == true ? "Passive" : "Active")</i></p>
                 </div>
+
+                <div style="flex:1; min-width:200px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Manual Public IP Override (Optional)</label>
+                    <input type="text" @bind="_manualPublicIp" class="input-clean" style="width:100%; padding:8px;" placeholder="e.g. 80.110.210.12" />
+                    <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Leave empty for auto-detection by the Hub. <br/><i>Current: @(string.IsNullOrEmpty(Connection.ManualPublicIp) ? "Auto" : Connection.ManualPublicIp)</i></p>
+                </div>
                 
                 <div style="flex:1; min-width:200px; border-left:1px solid var(--border-color); padding-left:24px;">
                     <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Current Status</label>
@@ -298,6 +304,7 @@
     private int _targetP2PPort;
     private int _currentListenPort;
     private int _connectivityMode;
+    private string? _manualPublicIp;
 
     protected override async Task OnInitializedAsync()
     {
@@ -310,6 +317,7 @@
         _targetP2PPort = await Connection.GetP2PPort();
         _currentListenPort = await Connection.GetCurrentListenPort();
         _connectivityMode = await Connection.GetConnectivityMode();
+        _manualPublicIp = await Connection.GetManualPublicIp();
         _nodeName = Connection.NodeName;
     }
 
@@ -420,6 +428,7 @@
     {
         await Connection.SetP2PPort(_targetP2PPort);
         await Connection.SetConnectivityMode(_connectivityMode);
+        await Connection.SetManualPublicIp(_manualPublicIp);
         _settingsMessage = "Connectivity settings saved. Some changes may require a restart.";
         StateHasChanged();
         await Task.Delay(3000);

@@ -218,4 +218,12 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await node.SetConnectivityMode((NodeConnectionManager.ConnectivityMode)mode);
         await Clients.All.SendAsync("ConnectivityModeUpdate", mode);
     }
+
+    public string? GetManualPublicIp() => node.ManualPublicIp;
+
+    public async Task SetManualPublicIp(string? ip)
+    {
+        await node.SetManualPublicIp(ip);
+        await Clients.All.SendAsync("ManualPublicIpUpdate", ip);
+    }
 }

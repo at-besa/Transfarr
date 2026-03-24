@@ -36,9 +36,12 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
         if (remoteIp == "::1") remoteIp = "127.0.0.1";
 
+        // Use provided DirectIp if present, otherwise fall back to auto-detected remote IP
+        string resolvedIp = string.IsNullOrWhiteSpace(peer.DirectIp) ? remoteIp : peer.DirectIp;
+
         var actualPeer = peer with { 
             ConnectionId = Context.ConnectionId,
-            DirectIp = remoteIp,
+            DirectIp = resolvedIp,
             Name = username 
         };
         networkState.AddOrUpdatePeer(Context.ConnectionId, actualPeer);
@@ -52,9 +55,11 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
         if (remoteIp == "::1") remoteIp = "127.0.0.1";
 
+        string resolvedIp = string.IsNullOrWhiteSpace(peer.DirectIp) ? remoteIp : peer.DirectIp;
+
         var actualPeer = peer with { 
             ConnectionId = Context.ConnectionId,
-            DirectIp = remoteIp 
+            DirectIp = resolvedIp 
         };
         networkState.AddOrUpdatePeer(Context.ConnectionId, actualPeer);
         await Clients.Others.SendAsync("PeerUpdated", actualPeer);

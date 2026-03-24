@@ -42,6 +42,7 @@ public class NodeConnectionManager : IHostedService
     
     public enum ConnectivityMode { Auto = 0, ForceActive = 1, ForcePassive = 2 }
     public ConnectivityMode CurrentConnectivityMode { get; private set; } = ConnectivityMode.Auto;
+    public string? ManualPublicIp { get; private set; }
     
     private string _localIp = "127.0.0.1";
     public bool IsPassive { get; private set; } = false;
@@ -59,6 +60,8 @@ public class NodeConnectionManager : IHostedService
         // Load custom Hub/Node settings
         var savedMode = db.GetSetting("ConnectivityMode");
         if (Enum.TryParse<ConnectivityMode>(savedMode, out var mode)) CurrentConnectivityMode = mode;
+        
+        ManualPublicIp = db.GetSetting("ManualPublicIp");
 
         // Load custom NodeName if saved
         var savedName = db.GetSetting("NodeName");
@@ -180,7 +183,8 @@ public class NodeConnectionManager : IHostedService
                 IsPassive = !isActive;
             }
             
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, _localIp, transferServer.ListenPort, IsPassive);
+            string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : _localIp;
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive);
             await hub.InvokeAsync("JoinAsNode", peerInfo);
         }
         catch (Exception ex)
@@ -443,6 +447,18 @@ public class NodeConnectionManager : IHostedService
                 bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
                 IsPassive = !isActive;
             }
+            await BroadcastUpdate();
+        }
+        OnStateChanged?.Invoke();
+    }
+
+    public async Task SetManualPublicIp(string? ip)
+    {
+        ManualPublicIp = string.IsNullOrWhiteSpace(ip) ? null : ip;
+        db.SaveSetting("ManualPublicIp", ManualPublicIp ?? "");
+        
+        if (hub?.State == HubConnectionState.Connected)
+        {
             await BroadcastUpdate();
         }
         OnStateChanged?.Invoke();
