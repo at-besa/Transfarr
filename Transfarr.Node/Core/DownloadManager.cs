@@ -19,6 +19,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
     private long lastProgressTicks = 0;
     
     public Func<string, string, Task>? RequestConnectBackAction { get; set; }
+    public Func<string, string, Task<IEnumerable<string>>>? RequestNegotiationAction { get; set; }
     public event Action? OnQueueChanged;
 
     public List<DownloadItem> AllItems => items.Values.ToList();
@@ -139,12 +140,32 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             }
             else
             {
-                string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
-                int port = targetPeer.TransferPort;
-                if (port == 0) return;
+                // Stage 3: Negotiation
+                logger.LogInfo($"[Download] Negotiating connection for directory {virtualPath} with {targetPeer.Name}...");
+                IEnumerable<string> candidates = new List<string> { targetPeer.DirectIp };
+                if (RequestNegotiationAction != null)
+                {
+                    candidates = await RequestNegotiationAction(targetPeer.PeerId, "DIR_LIST_" + virtualPath.GetHashCode());
+                }
 
                 client = new TcpClient();
-                await client.ConnectAsync(ip, port);
+                bool connected = false;
+                foreach (var ip in candidates.Distinct())
+                {
+                    try
+                    {
+                        var connectTask = client.ConnectAsync(ip, targetPeer.TransferPort);
+                        if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+                        {
+                            await connectTask;
+                            connected = true;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (!connected) { client.Dispose(); return; }
                 stream = client.GetStream();
             }
 
@@ -289,12 +310,32 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             }
             else
             {
-                string ip = string.IsNullOrEmpty(item.TargetPeer.DirectIp) ? "127.0.0.1" : item.TargetPeer.DirectIp;
-                int port = item.TargetPeer.TransferPort;
-                if (port == 0) throw new Exception("Remote peer has no active transfer port.");
+                // Stage 3: Negotiation
+                logger.LogInfo($"[Download] Negotiating connection for file {item.FileName} with {item.TargetPeer.Name}...");
+                IEnumerable<string> candidates = new List<string> { item.TargetPeer.DirectIp };
+                if (RequestNegotiationAction != null)
+                {
+                    candidates = await RequestNegotiationAction(item.TargetPeerId, item.Id);
+                }
 
                 client = new TcpClient();
-                await client.ConnectAsync(ip, port);
+                bool connected = false;
+                foreach (var ip in candidates.Distinct())
+                {
+                    try
+                    {
+                        var connectTask = client.ConnectAsync(ip, item.TargetPeer.TransferPort);
+                        if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+                        {
+                            await connectTask;
+                            connected = true;
+                            break;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (!connected) throw new Exception("Failed to connect after trying all candidates (Negotiation).");
                 stream = client.GetStream();
                 
                 using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);

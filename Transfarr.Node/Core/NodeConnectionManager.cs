@@ -1,8 +1,11 @@
 using System.Net.Http;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Collections.Concurrent;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Configuration;
+using Open.Nat;
 using Transfarr.Shared.Models;
 
 namespace Transfarr.Node.Core;
@@ -16,19 +19,36 @@ public class NodeConnectionManager : IHostedService
     private readonly ShareDatabase db;
     private readonly DownloadManager downloadManager;
     private readonly SystemLogger logger;
+    private readonly IConfiguration configuration;
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<IEnumerable<string>>> pendingNegotiations = new();
 
-    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger)
+    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger, IConfiguration configuration)
     {
         this.shareManager = shareManager;
         this.transferServer = transferServer;
         this.db = db;
         this.downloadManager = downloadManager;
         this.logger = logger;
+        this.configuration = configuration;
         
         // Link DownloadManager to Hub signaling
         this.downloadManager.RequestConnectBackAction = async (targetId, hash) => {
             if (hub?.State == HubConnectionState.Connected)
                 await hub.InvokeAsync("RequestConnectBack", targetId, hash);
+        };
+
+        this.downloadManager.RequestNegotiationAction = async (targetId, requestId) => {
+            var tcs = new TaskCompletionSource<IEnumerable<string>>();
+            pendingNegotiations[requestId] = tcs;
+
+            if (hub?.State == HubConnectionState.Connected)
+                await hub.InvokeAsync("InitiateConnectionNegotiation", targetId, requestId);
+
+            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+            if (completedTask == tcs.Task) return await tcs.Task;
+            
+            pendingNegotiations.TryRemove(requestId, out _);
+            return new List<string>();
         };
     }
     public string PeerId { get; } = Guid.NewGuid().ToString("N");
@@ -56,6 +76,12 @@ public class NodeConnectionManager : IHostedService
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         transferServer.Start();
+        
+        var enableUPnP = configuration.GetValue<bool>("P2PSettings:EnableUPnP", true);
+        if (enableUPnP)
+        {
+            await SetupUPnP();
+        }
         
         // Load custom Hub/Node settings
         var savedMode = db.GetSetting("ConnectivityMode");
@@ -159,31 +185,42 @@ public class NodeConnectionManager : IHostedService
 
         SetupHubEvents();
 
-        try
-        {
-            await hub.StartAsync();
-            OnStateChanged?.Invoke();
+            try
+            {
+                await hub.StartAsync();
+                
+                // 1. Detect Local IP
+                var host = await System.Net.Dns.GetHostEntryAsync(System.Net.Dns.GetHostName());
+                _localIp = host.AddressList.FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.ToString() ?? "127.0.0.1";
+                logger.LogInfo($"[Node] Local IP detected: {_localIp}");
 
-            // Detect Local IP (via Hub connection info or simple heuristic)
-            // For now we assume the Hub will tell us or we use a basic check
-            // A more advanced Node might use a public IP API.
-            
-            // Perform Connectivity Detection
-            if (CurrentConnectivityMode == ConnectivityMode.ForcePassive)
-            {
-                IsPassive = true;
-            }
-            else if (CurrentConnectivityMode == ConnectivityMode.ForceActive)
-            {
-                IsPassive = false;
-            }
-            else
-            {
-                bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
-                IsPassive = !isActive;
-            }
-            
-            string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : _localIp;
+                // 2. Get Public IP from Hub (Mirroring)
+                var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp");
+                logger.LogInfo($"[Node] Public IP (via Hub): {publicIp}");
+
+                OnStateChanged?.Invoke();
+
+                // 3. Perform Connectivity Detection
+                if (CurrentConnectivityMode == ConnectivityMode.ForcePassive)
+                {
+                    IsPassive = true;
+                }
+                else if (CurrentConnectivityMode == ConnectivityMode.ForceActive)
+                {
+                    IsPassive = false;
+                }
+                else
+                {
+                    bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
+                    if (!isActive && publicIp != _localIp)
+                    {
+                        // Try testing with public IP too
+                        isActive = await hub.InvokeAsync<bool>("TestConnectivity", publicIp, transferServer.ListenPort);
+                    }
+                    IsPassive = !isActive;
+                }
+                
+                string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : publicIp);
             var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive);
             await hub.InvokeAsync("JoinAsNode", peerInfo);
         }
@@ -284,6 +321,24 @@ public class NodeConnectionManager : IHostedService
             OnGlobalChatReceived?.Invoke(senderName, message);
         });
 
+        hub.On<string, string>("OnNegotiationRequested", async (requesterPeerId, requestId) =>
+        {
+            var candidates = new List<string> { _localIp };
+            var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp");
+            if (publicIp != _localIp) candidates.Add(publicIp);
+            if (!string.IsNullOrWhiteSpace(ManualPublicIp)) candidates.Add(ManualPublicIp);
+            
+            await hub.InvokeAsync("SubmitIceCandidates", requesterPeerId, requestId, candidates);
+        });
+
+        hub.On<string, IEnumerable<string>>("OnIceCandidatesReceived", (requestId, candidates) =>
+        {
+            if (pendingNegotiations.TryRemove(requestId, out var tcs))
+            {
+                tcs.SetResult(candidates);
+            }
+        });
+
         hub.On("OnSuspended", async () =>
         {
             Console.WriteLine("[GlobalHub] Your account has been suspended by an administrator. Disconnecting...");
@@ -311,7 +366,7 @@ public class NodeConnectionManager : IHostedService
         var targetPeer = OnlinePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
         if (targetPeer == null) return;
         
-        TcpClient client;
+        TcpClient client = new TcpClient();
         Stream stream;
         
         if (targetPeer.IsPassive)
@@ -324,26 +379,51 @@ public class NodeConnectionManager : IHostedService
                 await hub.InvokeAsync("RequestConnectBack", targetPeerId, "ADL_LIST");
                 
             var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
-            if (completedTask != tcs.Task) return;
+            if (completedTask != tcs.Task) { client.Dispose(); return; }
             
             client = await tcs.Task;
             stream = client.GetStream();
         }
         else
         {
-            string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
-            int port = targetPeer.TransferPort;
-            if (port == 0) return;
+            // Stage 3: Negotiation
+            logger.LogInfo($"[Node] Negotiating connection with {targetPeer.Name}...");
+            var requestId = Guid.NewGuid().ToString("N");
+            var tcs = new TaskCompletionSource<IEnumerable<string>>();
+            pendingNegotiations[requestId] = tcs;
 
-            logger.LogInfo($"[Node] Attempting direct TCP connection to {targetPeer.Name} at {ip}:{port}...");
-            client = new TcpClient();
-            try
+            if (hub?.State == HubConnectionState.Connected)
+                await hub.InvokeAsync("InitiateConnectionNegotiation", targetPeerId, requestId);
+
+            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+            IEnumerable<string> candidates;
+            if (completedTask == tcs.Task) candidates = await tcs.Task;
+            else { candidates = new List<string> { targetPeer.DirectIp }; pendingNegotiations.TryRemove(requestId, out _); }
+
+            bool connected = false;
+            int port = targetPeer.TransferPort;
+            
+            foreach (var ip in candidates.Distinct())
             {
-                await client.ConnectAsync(ip, port);
+                if (string.IsNullOrEmpty(ip)) continue;
+                try
+                {
+                    logger.LogInfo($"[Node] Trying candidate: {ip}:{port}...");
+                    var connectTask = client.ConnectAsync(ip, port);
+                    if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+                    {
+                        await connectTask;
+                        connected = true;
+                        logger.LogInfo($"[Node] Connected to {targetPeer.Name} via {ip}:{port}");
+                        break;
+                    }
+                }
+                catch { /* Try next candidate */ }
             }
-            catch (Exception ex)
+
+            if (!connected)
             {
-                logger.LogError($"[Node] Failed to connect to {targetPeer.Name} ({ip}:{port}): {ex.Message}");
+                logger.LogError($"[Node] Failed to connect to {targetPeer.Name} after trying all candidates.");
                 client.Dispose();
                 return;
             }
@@ -462,5 +542,31 @@ public class NodeConnectionManager : IHostedService
             await BroadcastUpdate();
         }
         OnStateChanged?.Invoke();
+    }
+
+    private async Task SetupUPnP()
+    {
+        try
+        {
+            var discoverer = new NatDiscoverer();
+            var cts = new CancellationTokenSource(10000);
+            var device = await discoverer.DiscoverDeviceAsync(PortMapper.Upnp, cts);
+            
+            if (device != null)
+            {
+                var ip = await device.GetExternalIPAsync();
+                logger.LogInfo($"[UPnP] Router detected! External IP: {ip}");
+
+                await device.CreatePortMapAsync(new Mapping(Protocol.Tcp, transferServer.ListenPort, transferServer.ListenPort, "Transfarr P2P"));
+                logger.LogInfo($"[UPnP] Port {transferServer.ListenPort} successfully mapped on router.");
+                
+                // If UPnP succeeded, we are likely Active
+                IsPassive = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"[UPnP] Failed to map port: {ex.Message}");
+        }
     }
 }

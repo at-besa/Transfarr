@@ -137,4 +137,30 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
             return false;
         }
     }
+
+    public string GetMyPublicIp()
+    {
+        var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+        if (remoteIp == "::1") remoteIp = "127.0.0.1";
+        return remoteIp;
+    }
+
+    public async Task InitiateConnectionNegotiation(string targetPeerId, string requestId)
+    {
+        var targetPeer = networkState.ActivePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
+        if (targetPeer == null) return;
+
+        var requesterPeer = networkState.ActivePeers.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
+        if (requesterPeer == null) return;
+
+        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnNegotiationRequested", requesterPeer.PeerId, requestId);
+    }
+
+    public async Task SubmitIceCandidates(string requesterPeerId, string requestId, IEnumerable<string> candidates)
+    {
+        var requester = networkState.ActivePeers.FirstOrDefault(p => p.PeerId == requesterPeerId);
+        if (requester == null) return;
+
+        await Clients.Client(requester.ConnectionId).SendAsync("OnIceCandidatesReceived", requestId, candidates);
+    }
 }
