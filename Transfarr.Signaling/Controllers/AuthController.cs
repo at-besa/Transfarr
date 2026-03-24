@@ -45,6 +45,11 @@ public class AuthController(UserDatabase db, IConfiguration config, NetworkState
             return Unauthorized(new AuthResponse { Success = false, Error = "Invalid username or password" });
         }
 
+        if (user.Value.IsSuspended)
+        {
+            return Unauthorized(new AuthResponse { Success = false, Error = "Your account has been suspended by an administrator." });
+        }
+
         networkState.RecordLoginAttempt();
         var token = GenerateJwtToken(request.Username, user.Value.Role);
         return Ok(new AuthResponse 

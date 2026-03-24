@@ -25,6 +25,10 @@
                         {
                             <span style="font-size:9px; background:#40c057; color:white; padding:1px 4px; border-radius:2px; margin-left:4px; vertical-align:middle;">YOU</span>
                         }
+                        @if (peer.IsPassive)
+                        {
+                            <span style="font-size:9px; background:#ff4d4d; color:white; padding:1px 4px; border-radius:2px; margin-left:4px; vertical-align:middle;" title="Passive Mode (behind firewall/NAT)">P</span>
+                        }
                     </span>
                 </div>
                 <span style="font-size:11px; color:var(--text-muted);">@FormatBytes(peer.SharedBytes)</span>

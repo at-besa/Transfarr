@@ -27,6 +27,7 @@ public class ConnectionManager() : IAsyncDisposable
 
     public List<string> DefaultHubUrls { get; private set; } = new();
     public string DefaultNodeName { get; private set; } = "";   
+    public int ConnectivityMode { get; private set; } = 0; // 0=Auto, 1=Active, 2=Passive
     public HashProgressState CurrentHashProgress { get; private set; } = new();
     
     public ObservableCollection<LogEntry> SystemLogs { get; } = new();
@@ -133,6 +134,18 @@ public class ConnectionManager() : IAsyncDisposable
             }
             var senderName = OnlinePeers.FirstOrDefault(p => p.PeerId == senderId)?.Name ?? "Unknown";
             msgs.Add(new ChatMessage { SenderId = senderId, SenderName = senderName, Content = content, IsPrivate = true });
+            OnStateChanged?.Invoke();
+        });
+
+        hub.On<int>("ConnectivityModeUpdate", mode =>
+        {
+            ConnectivityMode = mode;
+            OnStateChanged?.Invoke();
+        });
+
+        hub.On<HashProgressState>("HashProgressUpdate", state =>
+        {
+            CurrentHashProgress = state;
             OnStateChanged?.Invoke();
         });
 
@@ -323,6 +336,19 @@ public class ConnectionManager() : IAsyncDisposable
     {
         if (hub?.State == HubConnectionState.Connected)
             await hub.InvokeAsync("SetDownloadPath", path);
+    }
+
+    public async Task<int> GetConnectivityMode()
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            return await hub.InvokeAsync<int>("GetConnectivityMode");
+        return 0;
+    }
+
+    public async Task SetConnectivityMode(int mode)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("SetConnectivityMode", mode);
     }
 
     public async Task<int> GetP2PPort()

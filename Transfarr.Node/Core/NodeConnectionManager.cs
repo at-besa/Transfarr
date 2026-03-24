@@ -40,6 +40,9 @@ public class NodeConnectionManager : IHostedService
 
     public List<PeerInfo> OnlinePeers { get; } = new();
     
+    public enum ConnectivityMode { Auto = 0, ForceActive = 1, ForcePassive = 2 }
+    public ConnectivityMode CurrentConnectivityMode { get; private set; } = ConnectivityMode.Auto;
+    
     private string _localIp = "127.0.0.1";
     public bool IsPassive { get; private set; } = false;
 
@@ -53,6 +56,10 @@ public class NodeConnectionManager : IHostedService
     {
         transferServer.Start();
         
+        // Load custom Hub/Node settings
+        var savedMode = db.GetSetting("ConnectivityMode");
+        if (Enum.TryParse<ConnectivityMode>(savedMode, out var mode)) CurrentConnectivityMode = mode;
+
         // Load custom NodeName if saved
         var savedName = db.GetSetting("NodeName");
         if (!string.IsNullOrEmpty(savedName)) NodeName = savedName;
@@ -158,9 +165,20 @@ public class NodeConnectionManager : IHostedService
             // For now we assume the Hub will tell us or we use a basic check
             // A more advanced Node might use a public IP API.
             
-            // Perform Connectivity Test
-            bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
-            IsPassive = !isActive;
+            // Perform Connectivity Detection
+            if (CurrentConnectivityMode == ConnectivityMode.ForcePassive)
+            {
+                IsPassive = true;
+            }
+            else if (CurrentConnectivityMode == ConnectivityMode.ForceActive)
+            {
+                IsPassive = false;
+            }
+            else
+            {
+                bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
+                IsPassive = !isActive;
+            }
             
             var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, _localIp, transferServer.ListenPort, IsPassive);
             await hub.InvokeAsync("JoinAsNode", peerInfo);
@@ -260,6 +278,12 @@ public class NodeConnectionManager : IHostedService
         hub.On<string, string>("ReceiveChat", (senderName, message) =>
         {
             OnGlobalChatReceived?.Invoke(senderName, message);
+        });
+
+        hub.On("OnSuspended", async () =>
+        {
+            Console.WriteLine("[GlobalHub] Your account has been suspended by an administrator. Disconnecting...");
+            await DisconnectFromGlobalHub();
         });
 
         hub.Closed += async (error) => { OnStateChanged?.Invoke(); await Task.CompletedTask; };
@@ -391,6 +415,26 @@ public class NodeConnectionManager : IHostedService
         NodeName = name;
         db.SaveSetting("NodeName", name);
         _ = BroadcastUpdate();
+        OnStateChanged?.Invoke();
+    }
+
+    public async Task SetConnectivityMode(ConnectivityMode mode)
+    {
+        CurrentConnectivityMode = mode;
+        db.SaveSetting("ConnectivityMode", mode.ToString());
+        
+        if (hub?.State == HubConnectionState.Connected)
+        {
+            // Re-detect or override
+            if (mode == ConnectivityMode.ForcePassive) IsPassive = true;
+            else if (mode == ConnectivityMode.ForceActive) IsPassive = false;
+            else 
+            {
+                bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
+                IsPassive = !isActive;
+            }
+            await BroadcastUpdate();
+        }
         OnStateChanged?.Invoke();
     }
 }

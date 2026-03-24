@@ -203,6 +203,9 @@ else
                 </div>
                 <div style="height:22px; background-color:var(--accent-blue); color:white; display:flex; align-items:center; padding:0 12px; font-size:11px; cursor:pointer;" @onclick='() => _leftNav = "Downloads"'>
                     <span>Node: @Connection.NodeName • Hub: @Connection.GlobalHubUrl • Online: @Connection.OnlinePeers.Count</span>
+                    <span style="background:rgba(0,0,0,0.2); margin-left:12px; padding:0 6px; border-radius:2px; font-weight:600;">
+                        @(Connection.LocalPeer?.IsPassive == true ? "PASSIVE [Firewalled]" : "ACTIVE")
+                    </span>
                     <span style="margin-left:auto;">@Connection.Queue.Count(q => q.Status == "Queued" || q.Status == "Downloading") Active Downloads</span>
                 </div>
             </div>

@@ -27,6 +27,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.Caller.SendAsync("UploadUpdate", ts.ActiveUploads.Values.ToList());
         await Clients.Caller.SendAsync("SharesUpdate", shares.GetSharedDirectories());
         await Clients.Caller.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
+        await Clients.Caller.SendAsync("ConnectivityModeUpdate", (int)node.CurrentConnectivityMode);
         await base.OnConnectedAsync();
     }
 
@@ -208,5 +209,13 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
     public async Task DisconnectFromGlobalHub()
     {
         await node.DisconnectFromGlobalHub();
+    }
+
+    public int GetConnectivityMode() => (int)node.CurrentConnectivityMode;
+
+    public async Task SetConnectivityMode(int mode)
+    {
+        await node.SetConnectivityMode((NodeConnectionManager.ConnectivityMode)mode);
+        await Clients.All.SendAsync("ConnectivityModeUpdate", mode);
     }
 }

@@ -132,6 +132,16 @@
                     <input type="number" @bind="_targetP2PPort" class="input-clean" style="width:100px; padding:8px;" placeholder="5151" />
                     <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Default port is <b>5151</b>. Set to 0 for random. <br/><i>Note: Changing this requires a Node restart.</i></p>
                 </div>
+
+                <div style="flex:1; min-width:200px;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Connectivity Mode</label>
+                    <select @bind="_connectivityMode" class="input-clean" style="width:100%; padding:8px; background:var(--bg-app); cursor:pointer;">
+                        <option value="0">Auto / Reachability Test (Recommended)</option>
+                        <option value="1">Force Active Mode (Direct Access)</option>
+                        <option value="2">Force Passive Mode (Firewalled / NAT)</option>
+                    </select>
+                    <p style="font-size:11px; color:var(--text-muted); margin-top:8px;">Choose <b>Passive</b> if you cannot forward ports. <br/><i>Current: @(Connection.LocalPeer?.IsPassive == true ? "Passive" : "Active")</i></p>
+                </div>
                 
                 <div style="flex:1; min-width:200px; border-left:1px solid var(--border-color); padding-left:24px;">
                     <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:12px;">Current Status</label>
@@ -287,6 +297,7 @@
     // Connectivity State
     private int _targetP2PPort;
     private int _currentListenPort;
+    private int _connectivityMode;
 
     protected override async Task OnInitializedAsync()
     {
@@ -298,6 +309,7 @@
         
         _targetP2PPort = await Connection.GetP2PPort();
         _currentListenPort = await Connection.GetCurrentListenPort();
+        _connectivityMode = await Connection.GetConnectivityMode();
         _nodeName = Connection.NodeName;
     }
 
@@ -407,6 +419,7 @@
     private async Task SaveConnectivitySettings()
     {
         await Connection.SetP2PPort(_targetP2PPort);
+        await Connection.SetConnectivityMode(_connectivityMode);
         _settingsMessage = "Connectivity settings saved. Some changes may require a restart.";
         StateHasChanged();
         await Task.Delay(3000);

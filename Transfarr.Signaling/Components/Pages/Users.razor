@@ -1,6 +1,11 @@
 @page "/users"
 @using Transfarr.Signaling.Data
+@using Microsoft.AspNetCore.SignalR
+@using Transfarr.Signaling.Hubs
+@using Transfarr.Signaling.Services
 @inject UserDatabase Db
+@inject IHubContext<SignalingHub> HubContext
+@inject NetworkStateService NetworkState
 
 <PageTitle>User Management - Transfarr Hub</PageTitle>
 
@@ -48,7 +53,15 @@
                             <span style="color: var(--accent-yellow); font-weight: 600;">@GetReputation(username)</span>
                         </td>
                         <td style="text-align: right;">
-                            <button class="btn-clean" style="background: transparent; border: 1px solid var(--border-color); color: var(--text-muted); font-size: 10px;" disabled>SUSPEND</button>
+                            @if (username != "admin")
+                            {
+                                var suspended = user?.IsSuspended ?? false;
+                                <button @onclick="() => ToggleSuspension(username, suspended)" 
+                                        class="btn-clean" 
+                                        style="background: transparent; border: 1px solid @(suspended ? "var(--accent-blue)" : "var(--border-color)"); color: @(suspended ? "var(--accent-blue)" : "var(--text-muted)"); font-size: 10px;">
+                                    @(suspended ? "UNSUSPEND" : "SUSPEND")
+                                </button>
+                            }
                         </td>
                     </tr>
                 }
@@ -77,6 +90,32 @@
     {
         var user = Db.GetUser(username);
         return user?.Reputation ?? 0;
+    }
+
+    private async Task ToggleSuspension(string username, bool current)
+    {
+        bool nextStatus = !current;
+        Db.SetSuspension(username, nextStatus);
+        
+        if (nextStatus)
+        {
+            // If we are suspending, kick the user if they are online
+            var onlinePeers = NetworkState.ActivePeers.Where(p => p.Name == username).ToList();
+            foreach (var peer in onlinePeers)
+            {
+                await HubContext.Clients.Client(peer.ConnectionId).SendAsync("OnSuspended");
+                // The client should disconnect itself, but we can also stop the connection server-side
+                // Note: SignalR doesn't have a direct "DisconnectClient" on IHubContext easily, 
+                // but we can send a message that triggers it, or let the hub filter handle it.
+            }
+            _message = $"User {username} suspended and kicked.";
+        }
+        else
+        {
+            _message = $"User {username} unsuspended.";
+        }
+        
+        RefreshList();
     }
 
     private void CreateUser()

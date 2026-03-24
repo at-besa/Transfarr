@@ -80,6 +80,14 @@
                             <td>@FormatSize(peer.SharedBytes)</td>
                             <td style="color: var(--text-muted);">Dynamic</td>
                             <td style="text-align: right;">
+                                @if (peer.IsPassive)
+                                {
+                                    <span class="badge-clean badge-red" style="margin-right: 8px;">PASSIVE</span>
+                                }
+                                else
+                                {
+                                    <span class="badge-clean badge-blue" style="margin-right: 8px;">ACTIVE</span>
+                                }
                                 <span class="badge-clean badge-green">VERIFIED</span>
                             </td>
                         </tr>
