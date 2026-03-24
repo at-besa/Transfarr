@@ -1,0 +1,80 @@
+@using Transfarr.Client.Core.Services
+@using Transfarr.Shared.Models
+@inject ConnectionManager Connection
+@implements IDisposable
+
+@if (Connection.ActiveUploads.Any())
+{
+    <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:8px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,0.3); animation: slideUp 0.3s ease;">
+        <!-- Header -->
+        <div style="padding:12px 16px; border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center; background-color:rgba(0,0,0,0.2);">
+            <h3 style="font-size:12px; font-weight:600; color:var(--text-highlight); margin:0; display:flex; align-items:center; gap:8px;">
+                <span style="color:var(--accent-blue);">📤</span> Active Uploads
+            </h3>
+            <span style="font-size:10px; color:var(--accent-blue); background:rgba(34, 139, 230, 0.1); padding:2px 8px; border-radius:10px; font-weight:600; border:1px solid rgba(34, 139, 230, 0.2);">
+                @Connection.ActiveUploads.Count Sending
+            </span>
+        </div>
+
+        <!-- Scrollable List -->
+        <div style="padding:12px; display:grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap:12px; max-height:300px; overflow-y:auto;">
+            @foreach (var up in Connection.ActiveUploads)
+            {
+                var progress = up.TotalSize > 0 ? (int)(up.BytesTransferred * 100 / up.TotalSize) : 0;
+                <div style="background-color:var(--bg-app); border:1px solid var(--border-color); border-radius:6px; padding:12px; transition:border-color 0.2s;" class="upload-card">
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:8px;">
+                        <div style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
+                            <span style="font-size:13px; font-weight:600; color:var(--text-highlight); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="@up.FileName">@up.FileName</span>
+                            <span style="font-size:10px; color:var(--text-muted); margin-top:2px;">Target: @up.RemoteIp</span>
+                        </div>
+                        <div style="text-align:right; margin-left:12px;">
+                            <span style="font-size:12px; color:var(--accent-green); font-weight:700; font-family:'JetBrains Mono', monospace;">@up.SpeedMBps.ToString("F1") MB/s</span>
+                        </div>
+                    </div>
+
+                    <!-- Progress Bar Area -->
+                    <div style="margin-top:12px;">
+                        <div style="height:6px; background:rgba(0,0,0,0.3); border-radius:10px; overflow:hidden; position:relative;">
+                            <div style="width:@progress%; background:linear-gradient(90deg, var(--accent-blue), #4dabf7); height:100%; transition:width 0.3s ease;"></div>
+                        </div>
+                        <div style="display:flex; justify-content:space-between; margin-top:6px;">
+                            <span style="font-size:10px; color:var(--text-muted);">@FormatBytes(up.BytesTransferred) of @FormatBytes(up.TotalSize)</span>
+                            <span style="font-size:10px; font-weight:600; color:var(--accent-blue);">@progress%</span>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+<style>
+    .upload-card:hover { border-color: rgba(34, 139, 230, 0.3); }
+    @@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+</style>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Connection.OnStateChanged += Refresh;
+    }
+
+    private void Refresh() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Connection.OnStateChanged -= Refresh;
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        if (bytes == 0) return "0 B";
+        string[] suffix = { "B", "KB", "MB", "GB", "TB" };
+        int i = 0;
+        double dS = bytes;
+        if (bytes > 1024)
+            for (i = 0; (bytes / 1024) > 0 && i < suffix.Length - 1; i++, bytes /= 1024)
+                dS = bytes / 1024.0;
+        return $"{dS:0.##} {suffix[i]}";
+    }
+}

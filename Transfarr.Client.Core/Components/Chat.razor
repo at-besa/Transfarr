@@ -53,37 +53,6 @@
         }
     </div>
 
-    <!-- Active Uploads -->
-    @if (Connection.ActiveUploads.Any())
-    {
-        <div style="padding:10px 16px; background:rgba(0,0,0,0.15); border-top:1px solid var(--border-color); border-bottom:1px solid var(--border-color);">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                <span style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.5px;">Active Uploads</span>
-                <span style="font-size:10px; color:var(--accent-blue); background:rgba(34, 139, 230, 0.1); padding:2px 6px; border-radius:10px; font-weight:600;">@Connection.ActiveUploads.Count Sending</span>
-            </div>
-            
-            <div style="display:flex; flex-direction:column; gap:8px; max-height:120px; overflow-y:auto; padding-right:4px;">
-                @foreach (var up in Connection.ActiveUploads)
-                {
-                    var progress = up.TotalSize > 0 ? (int)(up.BytesTransferred * 100 / up.TotalSize) : 0;
-                    <div style="background:rgba(255,255,255,0.02); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:6px 10px;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
-                            <span style="font-size:12px; color:var(--text-highlight); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; margin-right:12px;">⬆️ @up.FileName</span>
-                            <span style="font-size:11px; color:var(--accent-green); font-weight:600; font-family:monospace;">@up.SpeedMBps.ToString("F1") MB/s</span>
-                        </div>
-                        <div style="height:4px; background:rgba(0,0,0,0.3); border-radius:10px; overflow:hidden; display:flex;">
-                            <div style="width:@progress%; background:linear-gradient(90deg, var(--accent-blue), #4dabf7); height:100%; transition:width 0.3s ease;"></div>
-                        </div>
-                        <div style="display:flex; justify-content:space-between; margin-top:4px; font-size:9px; color:var(--text-muted); opacity:0.7;">
-                            <span>Progress: @progress%</span>
-                            <span>@up.RemoteIp</span>
-                        </div>
-                    </div>
-                }
-            </div>
-        </div>
-    }
-
     <!-- Chat Footer -->
     <div style="padding:16px; background-color:rgba(0,0,0,0.1); border-top:1px solid var(--border-color); position:relative;">
         @if (_showEmojiPicker)

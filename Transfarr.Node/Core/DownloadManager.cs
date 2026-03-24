@@ -187,6 +187,13 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
 
         try
         {
+            // Collision Handling: Ensure we don't overwrite existing files
+            if (item.BytesDownloaded == 0)
+            {
+                filePath = GetUniqueFilePath(targetDir, item.FileName);
+                item.FileName = Path.GetFileName(filePath);
+            }
+
             logger.LogInfo($"[Download] Starting: {item.FileName} from {item.TargetPeer.Name}");
             using var fs = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
             
@@ -216,13 +223,16 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             
             byte[] buffer = new byte[81920];
             int read;
+            bool wasAborted = false;
+
             while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
                 // Check if we were removed from queue during download
                 if (!items.ContainsKey(item.Id))
                 {
                     logger.LogWarning($"[Download] Aborted: {item.FileName} (Removed from Queue)");
-                    return; 
+                    wasAborted = true;
+                    break;
                 }
 
                 await fs.WriteAsync(buffer, 0, read);
@@ -238,8 +248,17 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 }
             }
             
-            // Checking one last time if still in items
-            if (!items.ContainsKey(item.Id)) return;
+            // Handle Cleanup if Aborted
+            if (wasAborted)
+            {
+                fs.Close();
+                if (File.Exists(filePath)) 
+                {
+                    File.Delete(filePath);
+                    logger.LogInfo($"[Download] Cleaned up partial file: {filePath}");
+                }
+                return;
+            }
 
             // Final update after loop to ensure 100% shows
             OnQueueChanged?.Invoke();
@@ -278,5 +297,22 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
         activeDownloads.TryRemove(item.Id, out _);
         OnQueueChanged?.Invoke();
         _ = ProcessQueueAsync();
+    }
+
+    private string GetUniqueFilePath(string folder, string fileName)
+    {
+        string fullPath = Path.Combine(folder, fileName);
+        if (!File.Exists(fullPath)) return fullPath;
+
+        string name = Path.GetFileNameWithoutExtension(fileName);
+        string ext = Path.GetExtension(fileName);
+        int count = 1;
+
+        while (File.Exists(fullPath))
+        {
+            fullPath = Path.Combine(folder, $"{name} ({count++}){ext}");
+        }
+
+        return fullPath;
     }
 }

@@ -173,8 +173,11 @@ else
                 <div style="flex:1; padding:24px; overflow-y:auto; background-color:var(--bg-app); position:relative;">
                     @if (_activeTab == "Hub")
                     {
-                        <div style="height:100%;">
-                            <Chat @ref="_chatComponent" />
+                        <div style="height:100%; display:flex; flex-direction:column; gap:20px;">
+                            <div style="flex:1;">
+                                <Chat @ref="_chatComponent" />
+                            </div>
+                            <ActiveUploadsView />
                         </div>
                     }
                     else
