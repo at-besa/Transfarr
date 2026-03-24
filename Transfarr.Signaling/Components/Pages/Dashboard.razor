@@ -1,0 +1,182 @@
+@page "/"
+@using Transfarr.Signaling.Services
+@inject NetworkStateService NetworkState
+@implements IDisposable
+
+<PageTitle>Transfarr Hub Admin</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="row g-4 mb-4">
+        <!-- Row 1 -->
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-primary text-white p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-1">🌐</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Active Nodes</div>
+                        <div class="fs-2 fw-bold">@NetworkState.GetActiveNodeCount()</div>
+                        <div class="small opacity-50">Peak: @NetworkState.PeakUserCount</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-success text-white p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-1">📦</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Share Size</div>
+                        <div class="fs-2 fw-bold">@FormatSize(NetworkState.GetTotalSharedBytes())</div>
+                        <div class="small opacity-50">Peak: @FormatSize(NetworkState.PeakTotalSharedBytes)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-warning text-dark p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-1">🚀</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Global Rate</div>
+                        <div class="fs-2 fw-bold">@FormatRate(NetworkState.CurrentTransferRateBps)</div>
+                        <div class="small opacity-75">Avg: @NetworkState.GetActiveNodeCount() nodes</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-info text-white p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-1">⏱️</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Uptime</div>
+                        <div class="fs-2 fw-bold">@_uptime</div>
+                        <div class="small opacity-50">Since @NetworkState.StartupTime.ToLocalTime()</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-5">
+        <!-- Row 2 -->
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-secondary text-white p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-2">📊</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Total Transferred</div>
+                        <div class="fs-4 fw-bold">@FormatSize(NetworkState.TotalBytesTransferred)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-dark text-white p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-2">🔑</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Logins</div>
+                        <div class="fs-4 fw-bold">@NetworkState.LoginAttempts</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-danger text-white p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-2">⚠️</div>
+                    <div>
+                        <div class="fw-bold opacity-75">Error Count</div>
+                        <div class="fs-4 fw-bold">@NetworkState.TotalErrors</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card shadow-sm border-0 bg-light p-3 h-100">
+                <div class="d-flex align-items-center gap-3">
+                    <div class="fs-2">👤</div>
+                    <div>
+                        <div class="fw-bold text-muted">Avg Share/User</div>
+                        <div class="fs-4 fw-bold">@GetAvgShare()</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Peers Table -->
+    <div class="card shadow-sm border-0 mt-4">
+        <div class="card-header bg-white border-0 py-3">
+            <h5 class="mb-0 fw-bold text-dark">Active Global Peers</h5>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-hover mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Peer Name</th>
+                        <th>Connection ID</th>
+                        <th>IP Address</th>
+                        <th>Shared Bytes</th>
+                        <th class="pe-4 text-end">Identity</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var peer in NetworkState.ActivePeers)
+                    {
+                        <tr>
+                            <td class="ps-4 fw-bold text-primary">@peer.Name</td>
+                            <td class="text-muted small">@peer.ConnectionId</td>
+                            <td>@peer.DirectIp</td>
+                            <td>@FormatSize(peer.SharedBytes)</td>
+                            <td class="pe-4 text-end">
+                                <span class="badge bg-primary rounded-pill">VERIFIED</span>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private System.Threading.Timer? _timer;
+    private string _uptime = "00:00:00";
+
+    protected override void OnInitialized()
+    {
+        _timer = new System.Threading.Timer(_ => 
+        {
+            var span = DateTime.UtcNow - NetworkState.StartupTime;
+            _uptime = $"{(int)span.TotalHours:D2}:{span.Minutes:D2}:{span.Seconds:D2}";
+            InvokeAsync(StateHasChanged);
+        }, null, 0, 1000);
+    }
+
+    private string FormatSize(long bytes)
+    {
+        string[] suffix = { "B", "KB", "MB", "GB", "TB" };
+        int i = 0;
+        double dS = bytes;
+        if (bytes > 1024)
+            for (i = 0; (bytes / 1024) > 0 && i < suffix.Length - 1; i++, bytes /= 1024)
+                dS = bytes / 1024.0;
+        return $"{dS:0.##} {suffix[i]}";
+    }
+
+    private string FormatRate(long bps)
+    {
+        return $"{FormatSize(bps)}/s";
+    }
+
+    private string GetAvgShare()
+    {
+        var count = NetworkState.GetActiveNodeCount();
+        if (count == 0) return "0 B";
+        return FormatSize(NetworkState.GetTotalSharedBytes() / count);
+    }
+
+    public void Dispose() => _timer?.Dispose();
+}

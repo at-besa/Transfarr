@@ -53,3 +53,6 @@ Thumbs.db
 # Temporary files
 /tmp/
 .gemini/
+
+# Configuration files
+appsettings.Development.json
