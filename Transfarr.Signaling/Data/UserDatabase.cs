@@ -72,19 +72,19 @@ public class UserDatabase
         }
     }
 
-    public (string Hash, string Role)? GetUser(string username)
+    public (string Hash, string Role, int Reputation)? GetUser(string username)
     {
         lock (_dbLock)
         {
             using var connection = new SqliteConnection(_connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
-            cmd.CommandText = "SELECT PasswordHash, Role FROM Users WHERE Username = @u";
+            cmd.CommandText = "SELECT PasswordHash, Role, Reputation FROM Users WHERE Username = @u";
             cmd.Parameters.AddWithValue("@u", username);
             using var reader = cmd.ExecuteReader();
             if (reader.Read())
             {
-                return (reader.GetString(0), reader.GetString(1));
+                return (reader.GetString(0), reader.GetString(1), reader.GetInt32(2));
             }
             return null;
         }

@@ -101,4 +101,35 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         int points = (int)Math.Max(1, bytes / (1024L * 1024 * 1024 * 10));
         db.UpdateReputation(username, points);
     }
+
+    public async Task RequestConnectBack(string targetPeerId, string fileHash)
+    {
+        var targetPeer = networkState.ActivePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
+        if (targetPeer == null) return;
+
+        var requesterPeer = networkState.ActivePeers.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
+        if (requesterPeer == null) return;
+
+        // Signal to the target (passive uploader) to connect to the requester (active downloader)
+        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnConnectBackRequested", requesterPeer.DirectIp, requesterPeer.TransferPort, fileHash);
+    }
+
+    public async Task<bool> TestConnectivity(string ip, int port)
+    {
+        try
+        {
+            using var client = new System.Net.Sockets.TcpClient();
+            var connectTask = client.ConnectAsync(ip, port);
+            if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+            {
+                await connectTask;
+                return true;
+            }
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }
