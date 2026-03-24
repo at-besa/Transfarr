@@ -59,51 +59,53 @@
                     <!-- Peer Results Table -->
                     @if (isExpanded)
                     {
-                        <table style="width:100%; text-align:left; font-size:13px; border-collapse:collapse;">
-                            <thead>
-                                <tr style="background-color:rgba(0,0,0,0.1); border-bottom:1px solid rgba(255,255,255,0.05); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
-                                    <th style="padding:10px 16px; font-weight:600;">Filename</th>
-                                    <th style="padding:10px 16px; font-weight:600; width:120px;">Size</th>
-                                    <th style="padding:10px 16px; font-weight:600; width:100px;">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                @foreach (var result in results.OrderByDescending(r => r.File.Size))
-                                {
-                                    <tr style="border-bottom:1px solid rgba(255,255,255,0.02); transition:background-color 0.1s;" class="list-item-row">
-                                        <td style="padding:10px 16px;">
-                                            <div style="display:flex; align-items:center; gap:10px;">
+                        <div style="max-height:400px; overflow-y:auto; background-color:rgba(0,0,0,0.05);">
+                            <table style="width:100%; text-align:left; font-size:13px; border-collapse:collapse;">
+                                <thead style="position:sticky; top:0; z-index:10; background-color:var(--bg-panel); box-shadow:0 1px 0 var(--border-color);">
+                                    <tr style="background-color:rgba(0,0,0,0.1); border-bottom:1px solid rgba(255,255,255,0.05); color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:0.5px;">
+                                        <th style="padding:10px 16px; font-weight:600;">Filename</th>
+                                        <th style="padding:10px 16px; font-weight:600; width:120px;">Size</th>
+                                        <th style="padding:10px 16px; font-weight:600; width:160px;">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach (var result in results.OrderByDescending(r => r.File.Size))
+                                    {
+                                        <tr style="border-bottom:1px solid rgba(255,255,255,0.02); transition:background-color 0.1s;" class="list-item-row">
+                                            <td style="padding:10px 16px;">
+                                                <div style="display:flex; align-items:center; gap:10px;">
+                                                    @if (result.File.IsDirectory)
+                                                    {
+                                                        <span style="color:#dcb67a; font-size:16px;">📁</span>
+                                                        <span style="color:var(--text-highlight); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@result.File.Name</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span style="color:var(--text-muted); font-size:16px;">📄</span>
+                                                        <span style="color:var(--text-highlight); font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@result.File.Name</span>
+                                                    }
+                                                </div>
+                                            </td>
+                                            <td style="padding:10px 16px; color:var(--text-muted); font-family:monospace;">@FormatSize(result.File.Size)</td>
+                                            <td style="padding:10px 16px;">
                                                 @if (result.File.IsDirectory)
                                                 {
-                                                    <span style="color:#dcb67a; font-size:16px;">📁</span>
-                                                    <span style="color:var(--text-highlight); font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@result.File.Name</span>
+                                                    <button class="btn-clean" @onclick="() => Download(result)" style="padding:4px 12px; font-size:11px; border:1px solid rgba(64, 192, 87, 0.4); color:#40c057; background:rgba(64, 192, 87, 0.1); font-weight:600;">
+                                                        Download Folder
+                                                    </button>
                                                 }
                                                 else
                                                 {
-                                                    <span style="color:var(--text-muted); font-size:16px;">📄</span>
-                                                    <span style="color:var(--text-highlight); font-weight:400; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">@result.File.Name</span>
+                                                    <button class="btn-clean" @onclick="() => Download(result)" style="padding:4px 12px; font-size:11px; border:1px solid rgba(255, 255, 255, 0.1); color:var(--text-muted); background:rgba(255, 255, 255, 0.02);">
+                                                        Download
+                                                    </button>
                                                 }
-                                            </div>
-                                        </td>
-                                        <td style="padding:10px 16px; color:var(--text-muted); font-family:monospace;">@FormatSize(result.File.Size)</td>
-                                        <td style="padding:10px 16px;">
-                                            @if (result.File.IsDirectory)
-                                            {
-                                                <button class="btn-clean" @onclick="() => Download(result)" style="padding:4px 12px; font-size:11px; border:1px solid rgba(64, 192, 87, 0.4); color:#40c057; background:rgba(64, 192, 87, 0.1); font-weight:600;">
-                                                    Download Folder
-                                                </button>
-                                            }
-                                            else
-                                            {
-                                                <button class="btn-clean" @onclick="() => Download(result)" style="padding:4px 12px; font-size:11px; border:1px solid rgba(255, 255, 255, 0.1); color:var(--text-muted); background:rgba(255, 255, 255, 0.02);">
-                                                    Download
-                                                </button>
-                                            }
-                                        </td>
-                                    </tr>
-                                }
-                            </tbody>
-                        </table>
+                                            </td>
+                                        </tr>
+                                    }
+                                </tbody>
+                            </table>
+                        </div>
                     }
                 </div>
             }
