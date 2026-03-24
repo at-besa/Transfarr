@@ -1,0 +1,12 @@
+services:
+  signaling:
+    build:
+      context: .
+      dockerfile: Transfarr.Signaling/Dockerfile
+    container_name: transfarr-signaling
+    ports:
+      - "5135:5135"
+    environment:
+      - ASPNETCORE_URLS=http://0.0.0.0:5135
+      - ASPNETCORE_ENVIRONMENT=Development
+    restart: always
