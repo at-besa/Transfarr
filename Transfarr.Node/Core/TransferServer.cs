@@ -20,6 +20,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
     public int ListenPort { get; private set; }
     public ConcurrentDictionary<string, UploadItem> ActiveUploads { get; } = new();
     public event Action<IEnumerable<UploadItem>>? OnUploadsChanged;
+    public event Action<long>? OnUploadComplete;
 
     public void Start()
     {
@@ -126,6 +127,11 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                                         lastUpdate = DateTime.Now;
                                         OnUploadsChanged?.Invoke(ActiveUploads.Values.ToList());
                                     }
+                                }
+
+                                if (remaining == 0)
+                                {
+                                    OnUploadComplete?.Invoke(size);
                                 }
                             }
                             finally

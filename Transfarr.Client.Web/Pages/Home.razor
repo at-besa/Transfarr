@@ -72,12 +72,23 @@ else if (!Connection.IsConnectedToGlobalHub)
     // Global Network Dashboard (identical to previous)
     <div style="display:flex; align-items:center; justify-content:center; height:100vh; background-color:var(--bg-app); font-family:var(--font-family);">
         <div style="width:100%; max-width:480px; padding:32px; background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; box-shadow:0 4px 12px rgba(0,0,0,0.5);">
-            <h2 style="font-size:24px; font-weight:300; margin-bottom:8px; text-align:center; color:var(--text-highlight);">Select Network</h2>
-            <p style="font-size:13px; color:var(--text-muted); text-align:center; margin-bottom:32px;">Connect your instance to a Global Signaling Hub.</p>
+            <h2 style="font-size:24px; font-weight:300; margin-bottom:8px; text-align:center; color:var(--text-highlight);">Connect to Network</h2>
+            <p style="font-size:13px; color:var(--text-muted); text-align:center; margin-bottom:24px;">Authenticity and Identity are required for most hubs.</p>
 
-            <div style="margin-bottom:20px;">
-                <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:8px;">Username</label>
-                <input type="text" @bind="_username" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="e.g. Anonymous Node" />
+            <div style="display:flex; justify-content:center; gap:20px; margin-bottom:24px;">
+                <div style="cursor:pointer; font-size:12px; font-weight:600; padding:4px 12px; border-radius:12px; @(!_isRegistering ? "background:var(--accent-blue); color:white;" : "color:var(--text-muted);")" @onclick="() => _isRegistering = false">LOGIN</div>
+                <div style="cursor:pointer; font-size:12px; font-weight:600; padding:4px 12px; border-radius:12px; @(_isRegistering ? "background:var(--accent-blue); color:white;" : "color:var(--text-muted);")" @onclick="() => _isRegistering = true">REGISTER</div>
+            </div>
+
+            <div style="display:flex; gap:16px; margin-bottom:20px;">
+                <div style="flex:1;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:8px;">Username</label>
+                    <input type="text" @bind="_username" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="e.g. MasterNode" />
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:8px;">Password</label>
+                    <input type="password" @bind="_password" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="********" />
+                </div>
             </div>
 
             <div style="margin-bottom:32px;">
@@ -85,7 +96,7 @@ else if (!Connection.IsConnectedToGlobalHub)
                 <div style="display:flex; flex-direction:column; gap:8px;">
                     @foreach(var fav in Connection.HubFavorites) {
                         <div style="display:flex; gap:8px; align-items:center; background:rgba(0,0,0,0.2); padding:8px 12px; border-radius:4px; border:1px solid var(--border-color);">
-                            <div style="flex:1; cursor:pointer;" @onclick='() => _selectedFavorite = fav.Url'>
+                            <div style="flex:1; cursor:pointer;" @onclick='() => _selectedFavorite = CleanUrl(fav.Url)'>
                                 <div style="font-size:13px; font-weight:600; color:var(--text-highlight);">@fav.Name</div>
                                 <div style="font-size:11px; color:var(--text-muted); font-family:monospace;">@CleanUrl(fav.Url)</div>
                             </div>
@@ -106,8 +117,14 @@ else if (!Connection.IsConnectedToGlobalHub)
                 </div>
             </div>
 
-            <button class="btn-clean" style="width:100%; padding:12px 16px; font-size:14px; background-color:var(--accent-blue); color:white; border:none;" @onclick="ConnectGlobal" disabled="@(string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_selectedFavorite) || _isConnectingGlobal)">
-                @(_isConnectingGlobal ? "Connecting..." : "Listen & Connect")
+            @if (!string.IsNullOrEmpty(_loginError))
+            {
+                <div style="color:#ff4d4d; font-size:12px; margin-bottom:16px; text-align:center; background:rgba(255,77,77,0.1); padding:8px; border-radius:4px;">@_loginError</div>
+            }
+
+            <button class="btn-clean" style="width:100%; padding:12px 16px; font-size:14px; background-color:var(--accent-blue); color:white; border:none;" 
+                    @onclick="ConnectGlobal" disabled="@(string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password) || string.IsNullOrWhiteSpace(_selectedFavorite) || _isConnectingGlobal)">
+                @(_isConnectingGlobal ? "Processing..." : (_isRegistering ? "Join & Register" : "Login & Connect"))
             </button>
         </div>
     </div>
@@ -244,6 +261,9 @@ else
     
     // Global Network configuration
     private string _username = "";
+    private string _password = "";
+    private bool _isRegistering = false;
+    private string _loginError = "";
     private string _selectedFavorite = "";
     
     // Desktop layout state
@@ -315,9 +335,38 @@ else
     private async Task ConnectGlobal()
     {
         _isConnectingGlobal = true;
+        _loginError = "";
         try
         {
-            await Connection.ConnectToGlobalHub(_selectedFavorite, _username);
+            if (_isRegistering)
+            {
+                // Simple registration flow via HTTP
+                var apiUrl = _selectedFavorite;
+                if (!apiUrl.StartsWith("http")) apiUrl = "http://" + apiUrl;
+                
+                var uri = new Uri(apiUrl);
+                var baseAddress = $"{uri.Scheme}://{uri.Authority}";
+                apiUrl = baseAddress.TrimEnd('/') + "/api/auth/register";
+
+                using var http = new System.Net.Http.HttpClient();
+                var regResponse = await http.PostAsJsonAsync(apiUrl, new LoginRequest { Username = _username, Password = _password });
+                if (!regResponse.IsSuccessStatusCode)
+                {
+                    _loginError = "Registration failed: " + await regResponse.Content.ReadAsStringAsync();
+                    return;
+                }
+                _isRegistering = false; // Switch to login after success
+            }
+
+            var result = await Connection.Login(_selectedFavorite, _username, _password);
+            if (!result.Success)
+            {
+                _loginError = result.Error;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loginError = "Connection Error: " + ex.Message;
         }
         finally
         {

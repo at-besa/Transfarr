@@ -30,6 +30,17 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await base.OnConnectedAsync();
     }
 
+    public async Task<AuthResponse> Login(string url, string username, string password)
+    {
+        var result = await node.LoginAsync(url, username, password);
+        if (result.Success)
+        {
+            await node.ConnectToGlobalHub(url, username, result.Token);
+            await Clients.All.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
+        }
+        return result;
+    }
+
     public async Task ConnectToGlobalHub(string url, string username)
     {
         await node.ConnectToGlobalHub(url, username);

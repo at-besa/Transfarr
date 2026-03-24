@@ -1,0 +1,80 @@
+@inherits LayoutComponentBase
+
+<div class="page">
+    <div class="sidebar">
+        <div class="top-row ps-3 navbar navbar-dark">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="">Transfarr Hub Admin</a>
+            </div>
+        </div>
+
+        <nav class="flex-column">
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                    <span class="bi bi-house-door-fill" aria-hidden="true"></span> Dashboard
+                </NavLink>
+            </div>
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="users">
+                    <span class="bi bi-people-fill" aria-hidden="true"></span> User Management
+                </NavLink>
+            </div>
+        </nav>
+    </div>
+
+    <main>
+        <div class="top-row px-4">
+            <a href="https://github.com/at-besa/Transfarr" target="_blank">About Transfarr</a>
+        </div>
+
+        <article class="content px-4">
+            @Body
+        </article>
+    </main>
+</div>
+
+<style>
+    .page {
+        position: relative;
+        display: flex;
+        flex-direction: row;
+        height: 100vh;
+    }
+
+    main {
+        flex: 1;
+        overflow-y: auto;
+    }
+
+    .sidebar {
+        background-image: linear-gradient(180deg, rgb(5, 39, 103) 0%, #3a0647 70%);
+        width: 250px;
+        color: white;
+    }
+
+    .top-row {
+        background-color: #f7f7f7;
+        border-bottom: 1px solid #d6d5d5;
+        justify-content: flex-end;
+        height: 3.5rem;
+        display: flex;
+        align-items: center;
+    }
+
+    .nav-item {
+        font-size: 0.9rem;
+        padding-bottom: 0.5rem;
+    }
+
+    .nav-link {
+        color: #d7d7d7;
+        display: flex;
+        align-items: center;
+        line-height: 3rem;
+    }
+
+    .nav-link.active {
+        background-color: rgba(255,255,255,0.25);
+        color: white;
+    }
+</style>

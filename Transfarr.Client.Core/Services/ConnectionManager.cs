@@ -264,6 +264,23 @@ public class ConnectionManager() : IAsyncDisposable
             await hub.InvokeAsync("AddSharedDirectory", virtualName, path);
     }
 
+    public async Task<AuthResponse> Login(string url, string username, string password)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+        {
+            var result = await hub.InvokeAsync<AuthResponse>("Login", url, username, password);
+            if (result.Success)
+            {
+                IsConnectedToGlobalHub = true;
+                GlobalHubUrl = url;
+                NodeName = username;
+                OnStateChanged?.Invoke();
+            }
+            return result;
+        }
+        return new AuthResponse { Success = false, Error = "Not connected to local daemon" };
+    }
+
     public async Task ConnectToGlobalHub(string url, string username)
     {
         if (hub?.State == HubConnectionState.Connected)

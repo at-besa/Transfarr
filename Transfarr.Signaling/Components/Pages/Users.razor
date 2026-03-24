@@ -1,0 +1,89 @@
+@page "/users"
+@using Transfarr.Signaling.Data
+@inject UserDatabase Db
+
+<PageTitle>User Management</PageTitle>
+
+<div class="container-fluid py-4">
+    <div class="card shadow-sm border-0">
+        <div class="card-header bg-white border-0 py-3 d-flex justify-content-between align-items-center">
+            <h5 class="mb-0 fw-bold">User Management</h5>
+            <div class="d-flex gap-2">
+                <input @bind="_newUsername" placeholder="New Username" class="form-control form-control-sm" style="width:150px;" />
+                <input @bind="_newPassword" type="password" placeholder="Password" class="form-control form-control-sm" style="width:150px;" />
+                <button @onclick="CreateUser" class="btn btn-primary btn-sm px-3">Add User</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            @if (!string.IsNullOrEmpty(_message))
+            {
+                <div class="alert alert-info border-0 rounded-0 m-0">@_message</div>
+            }
+            <table class="table table-hover mb-0">
+                <thead class="bg-light">
+                    <tr>
+                        <th class="ps-4">Username</th>
+                        <th>Role</th>
+                        <th>Trust Score</th>
+                        <th class="pe-4 text-end">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var username in _users)
+                    {
+                        var user = Db.GetUser(username);
+                        <tr>
+                            <td class="ps-4 fw-bold">@username</td>
+                            <td>
+                                <span class="badge @(user?.Role == "Admin" ? "bg-danger" : "bg-secondary") rounded-pill">@user?.Role</span>
+                            </td>
+                            <td>0 pts</td>
+                            <td class="pe-4 text-end">
+                                <button class="btn btn-outline-danger btn-sm py-0" disabled>SUSPEND</button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<string> _users = new();
+    private string _newUsername = "";
+    private string _newPassword = "";
+    private string _message = "";
+
+    protected override void OnInitialized()
+    {
+        RefreshList();
+    }
+
+    private void RefreshList()
+    {
+        _users = Db.GetAllUsernames();
+    }
+
+    private void CreateUser()
+    {
+        if (string.IsNullOrWhiteSpace(_newUsername) || string.IsNullOrWhiteSpace(_newPassword))
+        {
+            _message = "Username and password required.";
+            return;
+        }
+
+        string hash = BCrypt.Net.BCrypt.HashPassword(_newPassword);
+        if (Db.CreateUser(_newUsername, hash))
+        {
+            _message = $"User {_newUsername} created successfully.";
+            _newUsername = "";
+            _newPassword = "";
+            RefreshList();
+        }
+        else
+        {
+            _message = "Failed to create user. It might already exist.";
+        }
+    }
+}

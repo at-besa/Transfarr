@@ -1,8 +1,5 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Net.Http;
+using System.Net.Http.Json;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Extensions.Hosting;
 using Transfarr.Shared.Models;
@@ -12,6 +9,7 @@ namespace Transfarr.Node.Core;
 public class NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db) : IHostedService
 {
     private HubConnection? hub;
+    private readonly HttpClient httpClient = new();
     
     public string PeerId { get; } = Guid.NewGuid().ToString("N");
     public string NodeName { get; set; } = "DesktopNode_" + Random.Shared.Next(100, 999);
@@ -36,7 +34,7 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
         var savedName = db.GetSetting("NodeName");
         if (!string.IsNullOrEmpty(savedName)) NodeName = savedName;
 
-        // Auto-Reconnect Logic
+        // Auto-Reconnect Logic with Auth support
         var lastHub = db.GetSetting("LastHubUrl");
         var lastUser = db.GetSetting("LastUsername");
         if (!string.IsNullOrEmpty(lastHub) && !string.IsNullOrEmpty(lastUser))
@@ -54,34 +52,75 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
             OnStateChanged?.Invoke();
         };
 
+        transferServer.OnUploadComplete += async (bytes) => {
+            await NotifyUploadComplete(bytes);
+        };
+
         await Task.CompletedTask;
     }
 
-    public async Task ConnectToGlobalHub(string url, string username)
+    public async Task<AuthResponse> LoginAsync(string url, string username, string password)
+    {
+        // Normalize URL for API - strip /signaling if present
+        var apiUrl = url;
+        if (!apiUrl.StartsWith("http")) apiUrl = "http://" + apiUrl;
+        
+        var uri = new Uri(apiUrl);
+        var baseAddress = $"{uri.Scheme}://{uri.Authority}";
+        apiUrl = baseAddress.TrimEnd('/') + "/api/auth/login";
+
+        try
+        {
+            var response = await httpClient.PostAsJsonAsync(apiUrl, new LoginRequest { Username = username, Password = password });
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<AuthResponse>();
+                if (result != null && result.Success)
+                {
+                    db.SaveSetting("LastHubUrl", url);
+                    db.SaveSetting("LastUsername", username);
+                    db.SaveSetting("AuthToken", result.Token);
+                    return result;
+                }
+                return result ?? new AuthResponse { Success = false, Error = "Invalid response from server" };
+            }
+            else
+            {
+                var errorMsg = await response.Content.ReadAsStringAsync();
+                return new AuthResponse { Success = false, Error = $"Server error ({response.StatusCode}): {errorMsg}" };
+            }
+        }
+        catch (Exception ex)
+        {
+            return new AuthResponse { Success = false, Error = ex.Message };
+        }
+    }
+
+    public async Task ConnectToGlobalHub(string url, string username, string? token = null)
     {
         if (hub != null) await hub.DisposeAsync();
         
         // Normalize URL
-        if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
-            !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-        {
-            url = "http://" + url;
-        }
-        
-        if (!url.EndsWith("/signaling", StringComparison.OrdinalIgnoreCase))
-        {
-            url = url.TrimEnd('/') + "/signaling";
-        }
+        if (!url.StartsWith("http")) url = "http://" + url;
+        var signalingUrl = url.TrimEnd('/') + "/signaling";
+
+        // Use provided token or look in DB
+        var authToken = token ?? db.GetSetting("AuthToken");
 
         NodeName = username;
         GlobalHubUrl = url;
 
-        // Persist for Auto-Reconnect
         db.SaveSetting("LastHubUrl", url);
         db.SaveSetting("LastUsername", username);
         
         hub = new HubConnectionBuilder()
-            .WithUrl(url)
+            .WithUrl(signalingUrl, options => {
+                if (!string.IsNullOrEmpty(authToken))
+                {
+                    options.AccessTokenProvider = () => Task.FromResult<string?>(authToken);
+                }
+            })
             .WithAutomaticReconnect()
             .Build();
 
@@ -265,6 +304,12 @@ public class NodeConnectionManager(ShareManager shareManager, TransferServer tra
     {
         if (hub?.State == HubConnectionState.Connected)
             await hub.InvokeAsync("SendPrivateMessage", targetPeerId, PeerId, content);
+    }
+
+    public async Task NotifyUploadComplete(long bytes)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("ReportUploadComplete", bytes);
     }
 
     public async Task SendGlobalChat(string message)
