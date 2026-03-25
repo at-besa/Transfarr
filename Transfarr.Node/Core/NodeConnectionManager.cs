@@ -69,9 +69,9 @@ public class NodeConnectionManager : IHostedService
     public bool IsPassive { get; private set; } = false;
 
     public event Action? OnStateChanged;
-    public Action<string, string>? OnFilelistReceived;
-    public Action<string, string>? OnFilelistStatusUpdate; // targetPeerId, status
-    public Action<SearchResult>? OnSearchResultReceived;
+    public event Action<string, string>? OnFilelistReceived;
+    public event Action<string, string>? OnFilelistStatusUpdate; // targetPeerId, status
+    public event Action<SearchResult>? OnSearchResultReceived;
     public event Action<string, string>? OnPrivateMsgReceived;
     public event Action<string, string>? OnGlobalChatReceived;
 

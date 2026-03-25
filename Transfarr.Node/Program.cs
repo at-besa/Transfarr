@@ -77,6 +77,10 @@ node.OnSearchResultReceived += (res) => {
     hubContext.Clients.All.SendAsync("ReceiveSearchResult", res);
 };
 
+node.OnFilelistStatusUpdate += (targetId, status) => {
+    hubContext.Clients.All.SendAsync("FilelistStatus", targetId, status);
+};
+
 node.OnPrivateMsgReceived += (senderId, content) => {
     hubContext.Clients.All.SendAsync("ReceivePrivateMessage", senderId, content);
 };

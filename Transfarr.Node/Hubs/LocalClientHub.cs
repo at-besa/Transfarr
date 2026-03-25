@@ -28,10 +28,6 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.Caller.SendAsync("SharesUpdate", shares.GetSharedDirectories());
         await Clients.Caller.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
         await Clients.Caller.SendAsync("ConnectivityModeUpdate", (int)node.CurrentConnectivityMode);
-        node.OnFilelistStatusUpdate = async (targetId, status) => {
-            await Clients.All.SendAsync("FilelistStatus", targetId, status);
-        };
-        
         await base.OnConnectedAsync();
     }
 
