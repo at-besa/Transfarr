@@ -200,49 +200,64 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
+    public async Task HandlePreConnectedClient(TcpClient client, string fileHash, string ip, CancellationToken token = default)
+    {
+        try
+        {
+            using (client)
+            {
+                using var stream = client.GetStream();
+                using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+
+                // Notify the downloader that we are responding to their ConnectBack request
+                await writer.WriteLineAsync($"CB_READY|{fileHash}");
+                await writer.FlushAsync();
+
+                // Wait for the downloader to send the actually desired request
+                using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                var reqLine = await reader.ReadLineAsync(token);
+                if (reqLine == null) return;
+
+                if (reqLine.StartsWith("REQ_FILE|"))
+                {
+                    var parts = reqLine.Split('|');
+                    if (parts.Length == 4)
+                    {
+                        long offset = long.Parse(parts[2]);
+                        long size = long.Parse(parts[3]);
+
+                        string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
+                        if (filePath != null && File.Exists(filePath))
+                        {
+                            await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip, token);
+                        }
+                    }
+                }
+                else if (reqLine == "REQ_LIST|")
+                {
+                    await SendFullFileListAsync(stream);
+                }
+                else if (reqLine.StartsWith("REQ_DIR|"))
+                {
+                    var path = reqLine.Substring("REQ_DIR|".Length);
+                    await SendDirectoryListAsync(stream, path);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[TransferServer] ConnectBack handling failed for {ip}: {ex.Message}");
+        }
+    }
+
     public async Task ConnectToPassiveDownloader(string ip, int port, string fileHash, CancellationToken token = default)
     {
         try
         {
             Console.WriteLine($"[TransferServer] Initiating ConnectBack to {ip}:{port} for {fileHash}...");
-            using var client = new TcpClient();
+            var client = new TcpClient();
             await client.ConnectAsync(ip, port, token);
-            using var stream = client.GetStream();
-            using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
-
-            // Notify the downloader that we are responding to their ConnectBack request
-            await writer.WriteLineAsync($"CB_READY|{fileHash}");
-            await writer.FlushAsync();
-
-            // Wait for the downloader to send the actually desired request
-            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-            var reqLine = await reader.ReadLineAsync(token);
-            if (reqLine == null) return;
-
-            if (reqLine.StartsWith("REQ_FILE|"))
-            {
-                var parts = reqLine.Split('|');
-                if (parts.Length == 4)
-                {
-                    long offset = long.Parse(parts[2]);
-                    long size = long.Parse(parts[3]);
-
-                    string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
-                    if (filePath != null && File.Exists(filePath))
-                    {
-                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip, token);
-                    }
-                }
-            }
-            else if (reqLine == "REQ_LIST|")
-            {
-                await SendFullFileListAsync(stream);
-            }
-            else if (reqLine.StartsWith("REQ_DIR|"))
-            {
-                var path = reqLine.Substring("REQ_DIR|".Length);
-                await SendDirectoryListAsync(stream, path);
-            }
+            await HandlePreConnectedClient(client, fileHash, ip, token);
         }
         catch (Exception ex)
         {

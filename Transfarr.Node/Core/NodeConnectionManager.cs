@@ -223,7 +223,7 @@ public class NodeConnectionManager : IHostedService
                 }
                 
                 string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : publicIp);
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, _localIp, publicIp);
             await hub.InvokeAsync("JoinAsNode", peerInfo, cancellationToken);
         }
         catch (Exception ex)
@@ -290,7 +290,8 @@ public class NodeConnectionManager : IHostedService
             var results = shareManager.SearchLocal(req.Query);
             foreach (var res in results)
             {
-                var searchResult = new SearchResult(res, new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort));
+                var selfInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort, IsPassive, _localIp, "");
+                var searchResult = new SearchResult(res, selfInfo);
                 await hub.InvokeAsync("SubmitSearchResult", requesterConnId, searchResult);
             }
         });
@@ -308,9 +309,24 @@ public class NodeConnectionManager : IHostedService
             }
         });
 
-        hub.On<string, int, string>("OnConnectBackRequested", async (ip, port, hash) =>
+        hub.On<IEnumerable<string>, int, string>("OnConnectBackRequested", async (ips, port, hash) =>
         {
-            await transferServer.ConnectToPassiveDownloader(ip, port, hash, serviceCts.Token);
+            foreach (var ip in ips)
+            {
+                try 
+                {
+                    // Basic check to see if we can reach it
+                    using var client = new System.Net.Sockets.TcpClient();
+                    var connectTask = client.ConnectAsync(ip, port, serviceCts.Token).AsTask();
+                    if (await Task.WhenAny(connectTask, Task.Delay(2000, serviceCts.Token)) == connectTask)
+                    {
+                        await connectTask;
+                        await transferServer.HandlePreConnectedClient(client, hash, ip, serviceCts.Token);
+                        break; // Success
+                    }
+                }
+                catch { /* Try next IP */ }
+            }
         });
 
         transferServer.OnReverseConnectionReceived += (client, hash) =>

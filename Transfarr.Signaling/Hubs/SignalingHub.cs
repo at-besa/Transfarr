@@ -115,8 +115,12 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         var requesterPeer = networkState.ActivePeers.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
         if (requesterPeer == null) return;
 
+        var candidates = new List<string> { requesterPeer.DirectIp };
+        if (!string.IsNullOrEmpty(requesterPeer.LocalIp) && !candidates.Contains(requesterPeer.LocalIp)) candidates.Add(requesterPeer.LocalIp);
+        if (!string.IsNullOrEmpty(requesterPeer.PublicIp) && !candidates.Contains(requesterPeer.PublicIp)) candidates.Add(requesterPeer.PublicIp);
+
         // Signal to the target (passive uploader) to connect to the requester (active downloader)
-        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnConnectBackRequested", requesterPeer.DirectIp, requesterPeer.TransferPort, fileHash);
+        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnConnectBackRequested", candidates.Distinct().ToList(), requesterPeer.TransferPort, fileHash);
     }
 
     public async Task<bool> TestConnectivity(string ip, int port)

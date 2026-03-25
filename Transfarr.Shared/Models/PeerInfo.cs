@@ -7,5 +7,7 @@ public record PeerInfo(
     long SharedBytes = 0, 
     string DirectIp = "", 
     int TransferPort = 0,
-    bool IsPassive = false
+    bool IsPassive = false,
+    string LocalIp = "",
+    string PublicIp = ""
 );
