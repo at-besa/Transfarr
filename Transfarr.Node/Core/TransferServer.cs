@@ -75,52 +75,61 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
-        using (client)
-        using (var stream = client.GetStream())
-        using (var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true))
+        var stream = client.GetStream();
+        try
         {
-            try
+            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+            var requestLine = await reader.ReadLineAsync(token);
+            if (string.IsNullOrEmpty(requestLine)) 
             {
-                var requestLine = await reader.ReadLineAsync(token);
-                if (string.IsNullOrEmpty(requestLine)) return;
+                client.Dispose();
+                return;
+            }
 
-                if (requestLine.StartsWith("REQ_FILE|"))
+            if (requestLine.StartsWith("REQ_FILE|"))
+            {
+                var parts = requestLine.Split('|');
+                if (parts.Length == 4)
                 {
-                    var parts = requestLine.Split('|');
-                    if (parts.Length == 4)
-                    {
-                        string tth = parts[1];
-                        long offset = long.Parse(parts[2]);
-                        long size = long.Parse(parts[3]);
+                    long offset = long.Parse(parts[2]);
+                    long size = long.Parse(parts[3]);
+                    string fileHash = parts[1];
 
-                        string? filePath = shareManager.GetLocalPathsByTth(tth).FirstOrDefault();
-                        if (filePath != null && File.Exists(filePath))
-                        {
-                            await SendFileContentAsync(stream, filePath, offset, size, tth, client.Client.RemoteEndPoint?.ToString() ?? "Unknown", token);
-                        }
+                    string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
+                    if (filePath != null && File.Exists(filePath))
+                    {
+                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, (client.Client.RemoteEndPoint?.ToString() ?? "unknown"), token);
                     }
                 }
-                else if (requestLine.StartsWith("REQ_DIR|"))
-                {
-                    var path = requestLine.Substring("REQ_DIR|".Length);
-                    await SendDirectoryListAsync(stream, path);
-                }
-                else if (requestLine == "REQ_LIST|")
-                {
-                    await SendFullFileListAsync(stream);
-                }
-                else if (requestLine.StartsWith("CB_READY|"))
-                {
-                    var hash = requestLine.Split('|')[1];
-                    logger.LogInfo($"[TransferServer] Reverse connection SUCCESS from {(client.Client.RemoteEndPoint)} for {hash}");
-                    OnReverseConnectionReceived?.Invoke(client, hash);
-                    return; // Handed off to DownloadManager, do not dispose here
-                }
+                client.Dispose();
             }
-            catch (Exception ex)
+            else if (requestLine.StartsWith("REQ_DIR|"))
             {
-                logger.LogWarning($"[TransferServer] Client handle error from {(client.Client.RemoteEndPoint)}: {ex.Message}");
+                var path = requestLine.Substring("REQ_DIR|".Length);
+                await SendDirectoryListAsync(stream, path);
+                client.Dispose();
             }
+            else if (requestLine == "REQ_LIST|")
+            {
+                await SendFullFileListAsync(stream);
+                client.Dispose();
+            }
+            else if (requestLine.StartsWith("CB_READY|"))
+            {
+                var hash = requestLine.Split('|')[1];
+                logger.LogInfo($"[TransferServer] Reverse connection SUCCESS from {(client.Client.RemoteEndPoint)} for {hash}");
+                OnReverseConnectionReceived?.Invoke(client, hash);
+                // DO NOT DISPOSE. Handed off.
+            }
+            else
+            {
+                client.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"[TransferServer] Client handle error from {(client.Client.RemoteEndPoint)}: {ex.Message}");
+            client.Dispose();
         }
     }
 
