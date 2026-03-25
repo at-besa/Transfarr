@@ -44,6 +44,13 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
         SetupRefreshTimer();
     }
 
+    public void Shutdown()
+    {
+        refreshTimer?.Stop();
+        refreshTimer?.Dispose();
+        hashCts?.Cancel();
+    }
+
     private void SetupRefreshTimer()
     {
         refreshTimer?.Dispose();

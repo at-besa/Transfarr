@@ -13,9 +13,10 @@ using System.Linq;
 
 namespace Transfarr.Node.Core;
 
-public class TransferServer(ShareManager shareManager, ShareDatabase db)
+public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger)
 {
     private TcpListener? listener;
+    private readonly CancellationTokenSource cts = new();
     
     public int ListenPort { get; private set; }
     public ConcurrentDictionary<string, UploadItem> ActiveUploads { get; } = new();
@@ -46,17 +47,24 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
             Console.WriteLine($"[TransferServer] Listening on fallback port {ListenPort}");
         }
         
-        _ = AcceptClientsAsync();
+        _ = AcceptClientsAsync(cts.Token);
+    }
+    
+    public void Stop()
+    {
+        cts.Cancel();
+        listener?.Stop();
+        listener = null;
     }
 
-    private async Task AcceptClientsAsync()
+    private async Task AcceptClientsAsync(CancellationToken token)
     {
-        while (listener != null)
+        while (listener != null && !token.IsCancellationRequested)
         {
             try
             {
-                var client = await listener.AcceptTcpClientAsync();
-                _ = HandleClientAsync(client);
+                var client = await listener.AcceptTcpClientAsync(token);
+                _ = HandleClientAsync(client, token);
             }
             catch (Exception ex)
             {
@@ -65,53 +73,63 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client)
+    private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
-        using (client)
-        using (var stream = client.GetStream())
-        using (var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true))
+        var stream = client.GetStream();
+        try
         {
-            try
+            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+            var requestLine = await reader.ReadLineAsync(token);
+            if (string.IsNullOrEmpty(requestLine)) 
             {
-                var requestLine = await reader.ReadLineAsync();
-                if (string.IsNullOrEmpty(requestLine)) return;
+                client.Dispose();
+                return;
+            }
 
-                if (requestLine.StartsWith("REQ_FILE|"))
+            if (requestLine.StartsWith("REQ_FILE|"))
+            {
+                var parts = requestLine.Split('|');
+                if (parts.Length == 4)
                 {
-                    var parts = requestLine.Split('|');
-                    if (parts.Length == 4)
-                    {
-                        string tth = parts[1];
-                        long offset = long.Parse(parts[2]);
-                        long size = long.Parse(parts[3]);
+                    long offset = long.Parse(parts[2]);
+                    long size = long.Parse(parts[3]);
+                    string fileHash = parts[1];
 
-                        string? filePath = shareManager.GetLocalPathsByTth(tth).FirstOrDefault();
-                        if (filePath != null && File.Exists(filePath))
-                        {
-                            await SendFileContentAsync(stream, filePath, offset, size, tth, client.Client.RemoteEndPoint?.ToString() ?? "Unknown");
-                        }
+                    string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
+                    if (filePath != null && File.Exists(filePath))
+                    {
+                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, (client.Client.RemoteEndPoint?.ToString() ?? "unknown"), token);
                     }
                 }
-                else if (requestLine.StartsWith("REQ_DIR|"))
-                {
-                    var path = requestLine.Substring("REQ_DIR|".Length);
-                    await SendDirectoryListAsync(stream, path);
-                }
-                else if (requestLine == "REQ_LIST|")
-                {
-                    await SendFullFileListAsync(stream);
-                }
-                else if (requestLine.StartsWith("CB_READY|"))
-                {
-                    var hash = requestLine.Split('|')[1];
-                    OnReverseConnectionReceived?.Invoke(client, hash);
-                    return; // Handed off to DownloadManager, do not dispose here
-                }
+                client.Dispose();
             }
-            catch (Exception ex)
+            else if (requestLine.StartsWith("REQ_DIR|"))
             {
-                Console.WriteLine($"[TransferServer] Client handle error: {ex.Message}");
+                var path = requestLine.Substring("REQ_DIR|".Length);
+                await SendDirectoryListAsync(stream, path);
+                client.Dispose();
             }
+            else if (requestLine == "REQ_LIST|")
+            {
+                await SendFullFileListAsync(stream);
+                client.Dispose();
+            }
+            else if (requestLine.StartsWith("CB_READY|"))
+            {
+                var hash = requestLine.Split('|')[1];
+                logger.LogInfo($"[TransferServer] Reverse connection SUCCESS from {(client.Client.RemoteEndPoint)} for {hash}");
+                OnReverseConnectionReceived?.Invoke(client, hash);
+                // DO NOT DISPOSE. Handed off.
+            }
+            else
+            {
+                client.Dispose();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"[TransferServer] Client handle error from {(client.Client.RemoteEndPoint)}: {ex.Message}");
+            client.Dispose();
         }
     }
 
@@ -136,7 +154,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
-    private async Task SendFileContentAsync(Stream stream, string filePath, long offset, long size, string tth, string remoteIp)
+    private async Task SendFileContentAsync(Stream stream, string filePath, long offset, long size, string tth, string remoteIp, CancellationToken token)
     {
         var uploadId = Guid.NewGuid().ToString("N");
         var upload = new UploadItem
@@ -160,11 +178,11 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
             DateTime lastUpdate = DateTime.Now;
             long bytesSinceUpdate = 0;
 
-            while (remaining > 0)
+            while (remaining > 0 && !token.IsCancellationRequested)
             {
-                int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
+                int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), token);
                 if (read == 0) break;
-                await stream.WriteAsync(buffer.AsMemory(0, read));
+                await stream.WriteAsync(buffer.AsMemory(0, read), token);
                 remaining -= read;
 
                 upload.BytesTransferred += read;
@@ -192,49 +210,69 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
-    public async Task ConnectToPassiveDownloader(string ip, int port, string fileHash)
+    public async Task HandlePreConnectedClient(TcpClient client, string fileHash, string ip, CancellationToken token = default)
+    {
+        try
+        {
+            logger.LogInfo($"[TransferServer] Handling pre-connected uploader client ({ip}) for {fileHash}");
+            using (client)
+            {
+                using var stream = client.GetStream();
+                using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+
+                // Notify the downloader that we are responding to their ConnectBack request
+                await writer.WriteLineAsync($"CB_READY|{fileHash}");
+                await writer.FlushAsync();
+                logger.LogInfo($"[TransferServer] Sent CB_READY|{fileHash} to downloader ({ip})");
+
+                // Wait for the downloader to send the actually desired request
+                using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                var reqLine = await reader.ReadLineAsync(token);
+                logger.LogInfo($"[TransferServer] Received request from downloader ({ip}): {reqLine}");
+                if (reqLine == null) return;
+
+                if (reqLine.StartsWith("REQ_FILE|"))
+                {
+                    var parts = reqLine.Split('|');
+                    if (parts.Length == 4)
+                    {
+                        long offset = long.Parse(parts[2]);
+                        long size = long.Parse(parts[3]);
+
+                        string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
+                        if (filePath != null && File.Exists(filePath))
+                        {
+                            await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip, token);
+                        }
+                    }
+                }
+                else if (reqLine == "REQ_LIST|")
+                {
+                    logger.LogInfo($"[TransferServer] Sending full file list to ({ip})...");
+                    await SendFullFileListAsync(stream);
+                    logger.LogInfo($"[TransferServer] File list sent to ({ip}).");
+                }
+                else if (reqLine.StartsWith("REQ_DIR|"))
+                {
+                    var path = reqLine.Substring("REQ_DIR|".Length);
+                    await SendDirectoryListAsync(stream, path);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"[TransferServer] ConnectBack handling failed for {ip}: {ex.Message}");
+        }
+    }
+
+    public async Task ConnectToPassiveDownloader(string ip, int port, string fileHash, CancellationToken token = default)
     {
         try
         {
             Console.WriteLine($"[TransferServer] Initiating ConnectBack to {ip}:{port} for {fileHash}...");
-            using var client = new TcpClient();
-            await client.ConnectAsync(ip, port);
-            using var stream = client.GetStream();
-            using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
-
-            // Notify the downloader that we are responding to their ConnectBack request
-            await writer.WriteLineAsync($"CB_READY|{fileHash}");
-            await writer.FlushAsync();
-
-            // Wait for the downloader to send the actually desired request
-            using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-            var reqLine = await reader.ReadLineAsync();
-            if (reqLine == null) return;
-
-            if (reqLine.StartsWith("REQ_FILE|"))
-            {
-                var parts = reqLine.Split('|');
-                if (parts.Length == 4)
-                {
-                    long offset = long.Parse(parts[2]);
-                    long size = long.Parse(parts[3]);
-
-                    string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
-                    if (filePath != null && File.Exists(filePath))
-                    {
-                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip);
-                    }
-                }
-            }
-            else if (reqLine == "REQ_LIST|")
-            {
-                await SendFullFileListAsync(stream);
-            }
-            else if (reqLine.StartsWith("REQ_DIR|"))
-            {
-                var path = reqLine.Substring("REQ_DIR|".Length);
-                await SendDirectoryListAsync(stream, path);
-            }
+            var client = new TcpClient();
+            await client.ConnectAsync(ip, port, token);
+            await HandlePreConnectedClient(client, fileHash, ip, token);
         }
         catch (Exception ex)
         {

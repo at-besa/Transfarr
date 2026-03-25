@@ -15,11 +15,18 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
     private readonly ConcurrentDictionary<string, DownloadItem> items = new();
     private readonly ConcurrentDictionary<string, DownloadItem> activeDownloads = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<TcpClient>> pendingReverseConnections = new();
+    private readonly CancellationTokenSource shutdownCts = new();
     private readonly System.Diagnostics.Stopwatch progressStopwatch = System.Diagnostics.Stopwatch.StartNew();
     private long lastProgressTicks = 0;
     
     public Func<string, string, Task>? RequestConnectBackAction { get; set; }
+    public Func<string, string, Task<IEnumerable<string>>>? RequestNegotiationAction { get; set; }
     public event Action? OnQueueChanged;
+
+    public void Shutdown()
+    {
+        shutdownCts.Cancel();
+    }
 
     public List<DownloadItem> AllItems => items.Values.ToList();
 
@@ -131,7 +138,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                     await RequestConnectBackAction(targetPeer.PeerId, reqId);
                 }
                 
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, shutdownCts.Token));
                 if (completedTask != tcs.Task) return;
                 
                 client = await tcs.Task;
@@ -139,13 +146,53 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             }
             else
             {
-                string ip = string.IsNullOrEmpty(targetPeer.DirectIp) ? "127.0.0.1" : targetPeer.DirectIp;
-                int port = targetPeer.TransferPort;
-                if (port == 0) return;
+                // Stage 3: Negotiation
+                logger.LogInfo($"[Download] Negotiating connection for directory {virtualPath} with {targetPeer.Name}...");
+                IEnumerable<string> candidates = new List<string> { targetPeer.DirectIp };
+                if (RequestNegotiationAction != null)
+                {
+                    candidates = await RequestNegotiationAction(targetPeer.PeerId, "DIR_LIST_" + virtualPath.GetHashCode());
+                }
 
-                client = new TcpClient();
-                await client.ConnectAsync(ip, port);
-                stream = client.GetStream();
+                TcpClient? finalClient = null;
+                Stream? finalStream = null;
+                bool connected = false;
+                foreach (var ip in candidates.Distinct())
+                {
+                    if (string.IsNullOrEmpty(ip)) continue;
+                    TcpClient candidateClient = new TcpClient();
+                    try
+                    {
+                        logger.LogInfo($"[Download] Trying directory candidate: {ip}:{targetPeer.TransferPort}...");
+                        var connectTask = candidateClient.ConnectAsync(ip, targetPeer.TransferPort, shutdownCts.Token).AsTask();
+                        if (await Task.WhenAny(connectTask, Task.Delay(3000, shutdownCts.Token)) == connectTask)
+                        {
+                            await connectTask;
+                            connected = true;
+                            finalClient = candidateClient;
+                            finalStream = candidateClient.GetStream();
+                            logger.LogInfo($"[Download] Connected to {targetPeer.Name} for directory listing via {ip}");
+                            break;
+                        }
+                        else
+                        {
+                            logger.LogWarning($"[Download] Directory connection timeout for {ip}");
+                            candidateClient.Dispose();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning($"[Download] Directory connection failed for {ip}: {ex.Message}");
+                        candidateClient.Dispose();
+                    }
+                }
+
+                if (!connected || finalClient == null || finalStream == null) 
+                { 
+                    throw new Exception($"Failed to connect to {targetPeer.Name} after trying all candidates ({string.Join(", ", candidates)})."); 
+                }
+                client = finalClient;
+                stream = finalStream;
             }
 
             using (client)
@@ -270,11 +317,11 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 }
 
                 // Wait for the reverse connection
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, shutdownCts.Token));
                 if (completedTask != tcs.Task)
                 {
                     pendingReverseConnections.TryRemove(item.Tth, out _);
-                    throw new Exception("Timeout waiting for uploader to connect back.");
+                    throw new Exception("Timeout waiting for uploader to connect back or shutdown requested.");
                 }
 
                 client = await tcs.Task;
@@ -289,13 +336,53 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             }
             else
             {
-                string ip = string.IsNullOrEmpty(item.TargetPeer.DirectIp) ? "127.0.0.1" : item.TargetPeer.DirectIp;
-                int port = item.TargetPeer.TransferPort;
-                if (port == 0) throw new Exception("Remote peer has no active transfer port.");
+                // Stage 3: Negotiation
+                logger.LogInfo($"[Download] Negotiating connection for file {item.FileName} with {item.TargetPeer.Name}...");
+                IEnumerable<string> candidates = new List<string> { item.TargetPeer.DirectIp };
+                if (RequestNegotiationAction != null)
+                {
+                    candidates = await RequestNegotiationAction(item.TargetPeerId, item.Id);
+                }
 
-                client = new TcpClient();
-                await client.ConnectAsync(ip, port);
-                stream = client.GetStream();
+                TcpClient? finalClient = null;
+                Stream? finalStream = null;
+                bool connected = false;
+                foreach (var ip in candidates.Distinct())
+                {
+                    if (string.IsNullOrEmpty(ip)) continue;
+                    TcpClient candidateClient = new TcpClient();
+                    try
+                    {
+                        logger.LogInfo($"[Download] Trying candidate: {ip}:{item.TargetPeer.TransferPort} for {item.FileName}...");
+                        var connectTask = candidateClient.ConnectAsync(ip, item.TargetPeer.TransferPort, shutdownCts.Token).AsTask();
+                        if (await Task.WhenAny(connectTask, Task.Delay(3000, shutdownCts.Token)) == connectTask)
+                        {
+                            await connectTask;
+                            connected = true;
+                            finalClient = candidateClient;
+                            finalStream = candidateClient.GetStream();
+                            logger.LogInfo($"[Download] Connected to {item.TargetPeer.Name} for {item.FileName} via {ip}");
+                            break;
+                        }
+                        else
+                        {
+                            logger.LogWarning($"[Download] Connection timeout for {ip}");
+                            candidateClient.Dispose();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning($"[Download] Connection failed for {ip}: {ex.Message}");
+                        candidateClient.Dispose();
+                    }
+                }
+
+                if (!connected || finalClient == null || finalStream == null) 
+                {
+                    throw new Exception($"Failed to connect after trying all candidates ({string.Join(", ", candidates)}).");
+                }
+                client = finalClient;
+                stream = finalStream;
                 
                 using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
                 long bytesRemaining = item.FileSize - item.BytesDownloaded;
@@ -310,7 +397,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             int read;
             bool wasAborted = false;
 
-            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length, shutdownCts.Token)) > 0)
             {
                 // Check if we were removed from queue during download
                 if (!items.ContainsKey(item.Id))

@@ -115,8 +115,14 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         var requesterPeer = networkState.ActivePeers.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
         if (requesterPeer == null) return;
 
+        var candidates = new List<string> { requesterPeer.DirectIp };
+        if (!string.IsNullOrEmpty(requesterPeer.LocalIp) && !candidates.Contains(requesterPeer.LocalIp)) candidates.Add(requesterPeer.LocalIp);
+        if (!string.IsNullOrEmpty(requesterPeer.PublicIp) && !candidates.Contains(requesterPeer.PublicIp)) candidates.Add(requesterPeer.PublicIp);
+
+        Console.WriteLine($"[Signaling] Requesting ConnectBack from {targetPeer.Name} (target) to {requesterPeer.Name} (requester) for {fileHash} via {string.Join(", ", candidates)}");
+
         // Signal to the target (passive uploader) to connect to the requester (active downloader)
-        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnConnectBackRequested", requesterPeer.DirectIp, requesterPeer.TransferPort, fileHash);
+        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnConnectBackRequested", candidates.Distinct().ToList(), requesterPeer.TransferPort, fileHash);
     }
 
     public async Task<bool> TestConnectivity(string ip, int port)
@@ -124,8 +130,8 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         try
         {
             using var client = new System.Net.Sockets.TcpClient();
-            var connectTask = client.ConnectAsync(ip, port);
-            if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+            var connectTask = client.ConnectAsync(ip, port, Context.ConnectionAborted).AsTask();
+            if (await Task.WhenAny(connectTask, Task.Delay(2000, Context.ConnectionAborted)) == connectTask)
             {
                 await connectTask;
                 return true;
@@ -136,5 +142,31 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         {
             return false;
         }
+    }
+
+    public string GetMyPublicIp()
+    {
+        var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "127.0.0.1";
+        if (remoteIp == "::1") remoteIp = "127.0.0.1";
+        return remoteIp;
+    }
+
+    public async Task InitiateConnectionNegotiation(string targetPeerId, string requestId)
+    {
+        var targetPeer = networkState.ActivePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
+        if (targetPeer == null) return;
+
+        var requesterPeer = networkState.ActivePeers.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
+        if (requesterPeer == null) return;
+
+        await Clients.Client(targetPeer.ConnectionId).SendAsync("OnNegotiationRequested", requesterPeer.PeerId, requestId);
+    }
+
+    public async Task SubmitIceCandidates(string requesterPeerId, string requestId, IEnumerable<string> candidates)
+    {
+        var requester = networkState.ActivePeers.FirstOrDefault(p => p.PeerId == requesterPeerId);
+        if (requester == null) return;
+
+        await Clients.Client(requester.ConnectionId).SendAsync("OnIceCandidatesReceived", requestId, candidates);
     }
 }

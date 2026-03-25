@@ -54,7 +54,14 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
 
     public async Task RequestRemoteFileList(string targetPeerId)
     {
-        await node.RequestRemoteFileListTcp(targetPeerId);
+        try 
+        {
+            await node.RequestRemoteFileListTcp(targetPeerId);
+        }
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("FilelistError", targetPeerId, ex.Message);
+        }
     }
 
     public async Task PerformSearch(string query)
