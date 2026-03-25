@@ -16,6 +16,7 @@ namespace Transfarr.Node.Core;
 public class TransferServer(ShareManager shareManager, ShareDatabase db)
 {
     private TcpListener? listener;
+    private readonly CancellationTokenSource cts = new();
     
     public int ListenPort { get; private set; }
     public ConcurrentDictionary<string, UploadItem> ActiveUploads { get; } = new();
@@ -46,17 +47,24 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
             Console.WriteLine($"[TransferServer] Listening on fallback port {ListenPort}");
         }
         
-        _ = AcceptClientsAsync();
+        _ = AcceptClientsAsync(cts.Token);
+    }
+    
+    public void Stop()
+    {
+        cts.Cancel();
+        listener?.Stop();
+        listener = null;
     }
 
-    private async Task AcceptClientsAsync()
+    private async Task AcceptClientsAsync(CancellationToken token)
     {
-        while (listener != null)
+        while (listener != null && !token.IsCancellationRequested)
         {
             try
             {
-                var client = await listener.AcceptTcpClientAsync();
-                _ = HandleClientAsync(client);
+                var client = await listener.AcceptTcpClientAsync(token);
+                _ = HandleClientAsync(client, token);
             }
             catch (Exception ex)
             {
@@ -65,7 +73,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
-    private async Task HandleClientAsync(TcpClient client)
+    private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
         using (client)
         using (var stream = client.GetStream())
@@ -73,7 +81,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         {
             try
             {
-                var requestLine = await reader.ReadLineAsync();
+                var requestLine = await reader.ReadLineAsync(token);
                 if (string.IsNullOrEmpty(requestLine)) return;
 
                 if (requestLine.StartsWith("REQ_FILE|"))
@@ -88,7 +96,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                         string? filePath = shareManager.GetLocalPathsByTth(tth).FirstOrDefault();
                         if (filePath != null && File.Exists(filePath))
                         {
-                            await SendFileContentAsync(stream, filePath, offset, size, tth, client.Client.RemoteEndPoint?.ToString() ?? "Unknown");
+                            await SendFileContentAsync(stream, filePath, offset, size, tth, client.Client.RemoteEndPoint?.ToString() ?? "Unknown", token);
                         }
                     }
                 }
@@ -136,7 +144,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
-    private async Task SendFileContentAsync(Stream stream, string filePath, long offset, long size, string tth, string remoteIp)
+    private async Task SendFileContentAsync(Stream stream, string filePath, long offset, long size, string tth, string remoteIp, CancellationToken token)
     {
         var uploadId = Guid.NewGuid().ToString("N");
         var upload = new UploadItem
@@ -160,11 +168,11 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
             DateTime lastUpdate = DateTime.Now;
             long bytesSinceUpdate = 0;
 
-            while (remaining > 0)
+            while (remaining > 0 && !token.IsCancellationRequested)
             {
-                int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
+                int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), token);
                 if (read == 0) break;
-                await stream.WriteAsync(buffer.AsMemory(0, read));
+                await stream.WriteAsync(buffer.AsMemory(0, read), token);
                 remaining -= read;
 
                 upload.BytesTransferred += read;
@@ -192,13 +200,13 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
     }
 
-    public async Task ConnectToPassiveDownloader(string ip, int port, string fileHash)
+    public async Task ConnectToPassiveDownloader(string ip, int port, string fileHash, CancellationToken token = default)
     {
         try
         {
             Console.WriteLine($"[TransferServer] Initiating ConnectBack to {ip}:{port} for {fileHash}...");
             using var client = new TcpClient();
-            await client.ConnectAsync(ip, port);
+            await client.ConnectAsync(ip, port, token);
             using var stream = client.GetStream();
             using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
 
@@ -208,7 +216,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
 
             // Wait for the downloader to send the actually desired request
             using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
-            var reqLine = await reader.ReadLineAsync();
+            var reqLine = await reader.ReadLineAsync(token);
             if (reqLine == null) return;
 
             if (reqLine.StartsWith("REQ_FILE|"))
@@ -222,7 +230,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                     string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
                     if (filePath != null && File.Exists(filePath))
                     {
-                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip);
+                        await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip, token);
                     }
                 }
             }

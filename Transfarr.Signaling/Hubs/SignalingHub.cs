@@ -124,8 +124,8 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         try
         {
             using var client = new System.Net.Sockets.TcpClient();
-            var connectTask = client.ConnectAsync(ip, port);
-            if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+            var connectTask = client.ConnectAsync(ip, port, Context.ConnectionAborted).AsTask();
+            if (await Task.WhenAny(connectTask, Task.Delay(2000, Context.ConnectionAborted)) == connectTask)
             {
                 await connectTask;
                 return true;

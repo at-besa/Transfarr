@@ -3,7 +3,7 @@ using Transfarr.Shared.Models;
 
 namespace Transfarr.Signaling.Services;
 
-public class NetworkStateService
+public class NetworkStateService : IDisposable
 {
     private readonly ConcurrentDictionary<string, PeerInfo> _peers = new();
     
@@ -61,4 +61,10 @@ public class NetworkStateService
 
     public long GetTotalSharedBytes() => _peers.Values.Sum(p => p.SharedBytes);
     public int GetActiveNodeCount() => _peers.Count;
+
+    public void Dispose()
+    {
+        _rateTimer.Stop();
+        _rateTimer.Dispose();
+    }
 }

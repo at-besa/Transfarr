@@ -15,12 +15,18 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
     private readonly ConcurrentDictionary<string, DownloadItem> items = new();
     private readonly ConcurrentDictionary<string, DownloadItem> activeDownloads = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<TcpClient>> pendingReverseConnections = new();
+    private readonly CancellationTokenSource shutdownCts = new();
     private readonly System.Diagnostics.Stopwatch progressStopwatch = System.Diagnostics.Stopwatch.StartNew();
     private long lastProgressTicks = 0;
     
     public Func<string, string, Task>? RequestConnectBackAction { get; set; }
     public Func<string, string, Task<IEnumerable<string>>>? RequestNegotiationAction { get; set; }
     public event Action? OnQueueChanged;
+
+    public void Shutdown()
+    {
+        shutdownCts.Cancel();
+    }
 
     public List<DownloadItem> AllItems => items.Values.ToList();
 
@@ -132,7 +138,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                     await RequestConnectBackAction(targetPeer.PeerId, reqId);
                 }
                 
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, shutdownCts.Token));
                 if (completedTask != tcs.Task) return;
                 
                 client = await tcs.Task;
@@ -154,8 +160,8 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 {
                     try
                     {
-                        var connectTask = client.ConnectAsync(ip, targetPeer.TransferPort);
-                        if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+                        var connectTask = client.ConnectAsync(ip, targetPeer.TransferPort, shutdownCts.Token).AsTask();
+                        if (await Task.WhenAny(connectTask, Task.Delay(2000, shutdownCts.Token)) == connectTask)
                         {
                             await connectTask;
                             connected = true;
@@ -291,11 +297,11 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 }
 
                 // Wait for the reverse connection
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000));
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, shutdownCts.Token));
                 if (completedTask != tcs.Task)
                 {
                     pendingReverseConnections.TryRemove(item.Tth, out _);
-                    throw new Exception("Timeout waiting for uploader to connect back.");
+                    throw new Exception("Timeout waiting for uploader to connect back or shutdown requested.");
                 }
 
                 client = await tcs.Task;
@@ -324,8 +330,8 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
                 {
                     try
                     {
-                        var connectTask = client.ConnectAsync(ip, item.TargetPeer.TransferPort);
-                        if (await Task.WhenAny(connectTask, Task.Delay(2000)) == connectTask)
+                        var connectTask = client.ConnectAsync(ip, item.TargetPeer.TransferPort, shutdownCts.Token).AsTask();
+                        if (await Task.WhenAny(connectTask, Task.Delay(2000, shutdownCts.Token)) == connectTask)
                         {
                             await connectTask;
                             connected = true;
@@ -351,7 +357,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
             int read;
             bool wasAborted = false;
 
-            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length, shutdownCts.Token)) > 0)
             {
                 // Check if we were removed from queue during download
                 if (!items.ContainsKey(item.Id))
