@@ -28,6 +28,10 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.Caller.SendAsync("SharesUpdate", shares.GetSharedDirectories());
         await Clients.Caller.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
         await Clients.Caller.SendAsync("ConnectivityModeUpdate", (int)node.CurrentConnectivityMode);
+        node.OnFilelistStatusUpdate = async (targetId, status) => {
+            await Clients.All.SendAsync("FilelistStatus", targetId, status);
+        };
+        
         await base.OnConnectedAsync();
     }
 
@@ -54,7 +58,14 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
 
     public async Task RequestRemoteFileList(string targetPeerId)
     {
-        await node.RequestRemoteFileListTcp(targetPeerId);
+        try 
+        {
+            await node.RequestRemoteFileListTcp(targetPeerId);
+        }
+        catch (Exception ex)
+        {
+            await Clients.Caller.SendAsync("FilelistError", targetPeerId, ex.Message);
+        }
     }
 
     public async Task PerformSearch(string query)

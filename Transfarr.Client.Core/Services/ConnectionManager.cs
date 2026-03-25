@@ -102,6 +102,16 @@ public class ConnectionManager() : IAsyncDisposable
             OnRawMessageReceived?.Invoke(peerId, $"RES_FILELIST|{json}");
         });
 
+        hub.On<string, string>("FilelistStatus", (peerId, status) =>
+        {
+            OnRawMessageReceived?.Invoke(peerId, $"STATUS_FILELIST|{status}");
+        });
+
+        hub.On<string, string>("FilelistError", (peerId, error) =>
+        {
+            OnRawMessageReceived?.Invoke(peerId, $"ERROR_FILELIST|{error}");
+        });
+
         hub.On<LogEntry>("SystemLog", entry =>
         {
             lock (SystemLogs)
