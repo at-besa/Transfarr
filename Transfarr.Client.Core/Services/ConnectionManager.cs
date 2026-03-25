@@ -258,6 +258,12 @@ public class ConnectionManager() : IAsyncDisposable
         return new HashSet<string>();
     }
 
+    public async Task RequestRemoteFileList(string targetPeerId)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("RequestRemoteFileList", targetPeerId);
+    }
+
     public async Task PerformSearch(string query)
     {
         SearchResults.Clear();

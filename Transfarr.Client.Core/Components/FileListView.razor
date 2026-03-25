@@ -109,7 +109,7 @@
             {
                 await Connection.ConnectToPeer(Peer.PeerId); 
             }
-            await Connection.SendMessage(Peer.PeerId, "REQ_FILELIST");
+            await Connection.RequestRemoteFileList(Peer.PeerId);
         }
         catch (Exception ex)
         {

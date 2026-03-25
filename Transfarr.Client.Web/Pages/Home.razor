@@ -182,24 +182,22 @@ else
                         </div>
                     }
                 </div>
-                <div style="flex:1; padding:24px; overflow-y:auto; background-color:var(--bg-app); position:relative;">
-                    @if (_activeTab == "Hub")
-                    {
-                        <div style="height:100%; display:flex; flex-direction:column; gap:20px;">
-                            <div style="flex:1;">
-                                <Chat @ref="_chatComponent" />
-                            </div>
-                            <ActiveUploadsView />
-                        </div>
-                    }
-                    else
-                    {
-                        var peer = _openTabs.FirstOrDefault(p => p.PeerId == _activeTab);
-                        if (peer != null)
+                <div style="flex:1; padding:24px; display:flex; flex-direction:column; gap:20px; overflow:hidden; background-color:var(--bg-app); position:relative;">
+                    <div style="flex:1; min-height:0;">
+                        @if (_activeTab == "Hub")
                         {
-                            <FileListView Peer="peer" />
+                            <Chat @ref="_chatComponent" />
                         }
-                    }
+                        else
+                        {
+                            var peer = _openTabs.FirstOrDefault(p => p.PeerId == _activeTab);
+                            if (peer != null)
+                            {
+                                <FileListView Peer="peer" />
+                            }
+                        }
+                    </div>
+                    <ActiveUploadsView />
                 </div>
                 <div style="height:22px; background-color:var(--accent-blue); color:white; display:flex; align-items:center; padding:0 12px; font-size:11px; cursor:pointer;" @onclick='() => _leftNav = "Downloads"'>
                     <span>Node: @Connection.NodeName • Hub: @Connection.GlobalHubUrl • Online: @Connection.OnlinePeers.Count</span>
