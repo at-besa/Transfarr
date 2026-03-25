@@ -426,13 +426,11 @@ public class NodeConnectionManager : IHostedService
 
         try
         {
-            // 2. Check Cache
+            // 2. Optional: Show Cached data immediately for UI responsiveness
             if (_fileListCache.TryGetValue(targetPeerId, out var cachedJson))
             {
-                logger.LogInfo($"[Node] Serving filelist for {targetPeerId} from cache.");
+                logger.LogInfo($"[Node] Providing cached filelist for {targetPeerId} while revalidating...");
                 OnFilelistReceived?.Invoke(targetPeerId, cachedJson);
-                tcs.SetResult();
-                return;
             }
 
             var targetPeer = OnlinePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
