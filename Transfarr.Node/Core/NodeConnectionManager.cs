@@ -66,6 +66,7 @@ public class NodeConnectionManager : IHostedService
     public string? ManualPublicIp { get; private set; }
     
     private string _localIp = "127.0.0.1";
+    private string? _upnpExternalIp;
     public bool IsPassive { get; private set; } = false;
 
     public event Action? OnStateChanged;
@@ -222,8 +223,15 @@ public class NodeConnectionManager : IHostedService
                     IsPassive = !isActive;
                 }
                 
-                string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : publicIp);
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, _localIp, publicIp);
+                string effectivePublicIp = publicIp;
+                if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(_upnpExternalIp) && !IsPrivateIp(_upnpExternalIp))
+                {
+                    effectivePublicIp = _upnpExternalIp;
+                    logger.LogInfo($"[Node] Overriding public IP with UPnP external IP: {effectivePublicIp} (Hub reported local IP {publicIp})");
+                }
+                
+                string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : effectivePublicIp);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, _localIp, effectivePublicIp);
             await hub.InvokeAsync("JoinAsNode", peerInfo, cancellationToken);
         }
         catch (Exception ex)
@@ -508,7 +516,15 @@ public class NodeConnectionManager : IHostedService
     {
         if (hub != null && hub.State == HubConnectionState.Connected)
         {
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, _localIp, transferServer.ListenPort, IsPassive);
+            var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp");
+            string effectivePublicIp = publicIp;
+            if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(_upnpExternalIp) && !IsPrivateIp(_upnpExternalIp))
+            {
+                effectivePublicIp = _upnpExternalIp;
+            }
+
+            string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : effectivePublicIp);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, _localIp, effectivePublicIp);
             await hub.InvokeAsync("UpdateNodeParams", peerInfo);
         }
     }
@@ -603,7 +619,8 @@ public class NodeConnectionManager : IHostedService
                 NatUtility.DeviceFound -= DeviceFoundHandler;
 
                 var ip = await device.GetExternalIPAsync();
-                logger.LogInfo($"[UPnP] Router detected! External IP: {ip}");
+                _upnpExternalIp = ip.ToString();
+                logger.LogInfo($"[UPnP] Router detected! External IP: {_upnpExternalIp}");
 
                 await device.CreatePortMapAsync(new Mapping(Protocol.Tcp, transferServer.ListenPort, transferServer.ListenPort, 0, "Transfarr P2P"));
                 logger.LogInfo($"[UPnP] Port {transferServer.ListenPort} successfully mapped on router via Mono.Nat.");
@@ -621,5 +638,19 @@ public class NodeConnectionManager : IHostedService
         {
             logger.LogWarning($"[UPnP] Failed to map port: {ex.Message}");
         }
+    }
+
+    private bool IsPrivateIp(string ip)
+    {
+        if (System.Net.IPAddress.TryParse(ip, out var address))
+        {
+            byte[] bytes = address.GetAddressBytes();
+            if (bytes[0] == 10) return true;
+            if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
+            if (bytes[0] == 192 && bytes[1] == 168) return true;
+            if (bytes[0] == 127) return true;
+            if (bytes[0] == 169 && bytes[1] == 254) return true; // Link-local
+        }
+        return false;
     }
 }
