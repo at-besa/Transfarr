@@ -67,6 +67,8 @@ public class NodeConnectionManager : IHostedService
     
     private string _localIp = "127.0.0.1";
     private string? _upnpExternalIp;
+    private readonly ConcurrentDictionary<string, string> _fileListCache = new();
+    private readonly ConcurrentDictionary<string, Task> _pendingFileListRequests = new();
     public bool IsPassive { get; private set; } = false;
 
     public event Action? OnStateChanged;
@@ -277,10 +279,14 @@ public class NodeConnectionManager : IHostedService
 
         hub.On<string>("PeerLeft", id =>
         {
-            OnlinePeers.RemoveAll(x => x.PeerId == id);
-            OnStateChanged?.Invoke();
+            var peer = OnlinePeers.FirstOrDefault(p => p.PeerId == id);
+            if (peer != null)
+            {
+                OnlinePeers.Remove(peer);
+                _fileListCache.TryRemove(id, out _);
+                OnStateChanged?.Invoke();
+            }
         });
-
         hub.On<PeerInfo>("PeerUpdated", p =>
         {
             var idx = OnlinePeers.FindIndex(x => x.PeerId == p.PeerId);
@@ -403,49 +409,82 @@ public class NodeConnectionManager : IHostedService
             return;
         }
 
-        var targetPeer = OnlinePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
-        if (targetPeer == null) return;
-        
-        TcpClient client = new TcpClient();
-        Stream stream;
-        
-        if (targetPeer.IsPassive)
+        // 1. Deduplicate inflight requests
+        if (_pendingFileListRequests.TryGetValue(targetPeerId, out var existingTask))
         {
-            logger.LogInfo($"[Node] Peer {targetPeer.Name} is passive. Requesting ConnectBack for filelist...");
-            OnFilelistStatusUpdate?.Invoke(targetPeerId, "Peer is passive. Requesting ConnectBack...");
-            
-            var tcs = new TaskCompletionSource<TcpClient>();
-            downloadManager.HandleReverseConnectionRequest("ADL_LIST", tcs);
-            
-            if (hub?.State == HubConnectionState.Connected)
-                await hub.InvokeAsync("RequestConnectBack", targetPeerId, "ADL_LIST");
-                 
-            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, serviceCts.Token));
-            if (completedTask != tcs.Task) 
-            { 
-                client.Dispose(); 
-                throw new Exception("ConnectBack timeout. The remote peer failed to connect back within 10 seconds. This usually means your port 5151 is not reachable from the outside."); 
-            }
-             
-            client = await tcs.Task;
-            stream = client.GetStream();
+            logger.LogInfo($"[Node] Awaiting existing filelist request for {targetPeerId}...");
+            await existingTask;
+            return;
         }
-        else
+
+        var tcs = new TaskCompletionSource();
+        if (!_pendingFileListRequests.TryAdd(targetPeerId, tcs.Task))
         {
-            // Stage 3: Negotiation
+            await _pendingFileListRequests[targetPeerId];
+            return;
+        }
+
+        try
+        {
+            // 2. Check Cache
+            if (_fileListCache.TryGetValue(targetPeerId, out var cachedJson))
+            {
+                logger.LogInfo($"[Node] Serving filelist for {targetPeerId} from cache.");
+                OnFilelistReceived?.Invoke(targetPeerId, cachedJson);
+                tcs.SetResult();
+                return;
+            }
+
+            var targetPeer = OnlinePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
+            if (targetPeer == null) 
+            {
+                tcs.SetResult();
+                return;
+            }
+            
+            TcpClient client = new TcpClient();
+            Stream stream;
+            
+            // Generate a unique hash for this specific peer request to avoid cross-connection confusion
+            var fileListHash = "ADL_LIST_" + targetPeerId;
+
+            if (targetPeer.IsPassive)
+            {
+                logger.LogInfo($"[Node] Peer {targetPeer.Name} is passive. Requesting ConnectBack for filelist...");
+                OnFilelistStatusUpdate?.Invoke(targetPeerId, "Peer is passive. Requesting ConnectBack...");
+                
+                var connectionTcs = new TaskCompletionSource<TcpClient>();
+                downloadManager.HandleReverseConnectionRequest(fileListHash, connectionTcs);
+                
+                if (hub?.State == HubConnectionState.Connected)
+                    await hub.InvokeAsync("RequestConnectBack", targetPeerId, fileListHash);
+                
+                var completedTask = await Task.WhenAny(connectionTcs.Task, Task.Delay(15000, serviceCts.Token));
+                if (completedTask != connectionTcs.Task) 
+                { 
+                    client.Dispose(); 
+                    throw new Exception("ConnectBack timeout (15s). The remote peer failed to connect back. Verify your port 5151 is reachable."); 
+                }
+                
+                client = await connectionTcs.Task;
+                stream = client.GetStream();
+            }
+            else
+            {
+                // Stage 3: Negotiation (existing logic)
             logger.LogInfo($"[Node] Negotiating connection with {targetPeer.Name}...");
             OnFilelistStatusUpdate?.Invoke(targetPeerId, "Negotiating direct connection...");
             
             var requestId = Guid.NewGuid().ToString("N");
-            var tcs = new TaskCompletionSource<IEnumerable<string>>();
-            pendingNegotiations[requestId] = tcs;
+            var negotiationTcs = new TaskCompletionSource<IEnumerable<string>>();
+            pendingNegotiations[requestId] = negotiationTcs;
 
             if (hub?.State == HubConnectionState.Connected)
                 await hub.InvokeAsync("InitiateConnectionNegotiation", targetPeerId, requestId);
 
-            var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000, serviceCts.Token));
+            var completedTask = await Task.WhenAny(negotiationTcs.Task, Task.Delay(5000, serviceCts.Token));
             IEnumerable<string> candidates;
-            if (completedTask == tcs.Task) candidates = await tcs.Task;
+            if (completedTask == negotiationTcs.Task) candidates = await negotiationTcs.Task;
             else { candidates = new List<string> { targetPeer.DirectIp }; pendingNegotiations.TryRemove(requestId, out _); }
 
             bool connected = false;
@@ -481,11 +520,9 @@ public class NodeConnectionManager : IHostedService
         
         OnFilelistStatusUpdate?.Invoke(targetPeerId, "Connected! Downloading list...");
 
-        try 
+        using (client)
+        using (stream)
         {
-            using (client)
-            using (stream)
-            {
                 using var writer = new System.IO.StreamWriter(stream, System.Text.Encoding.UTF8, leaveOpen: true);
                 
                 await writer.WriteLineAsync("REQ_LIST|");
@@ -506,14 +543,25 @@ public class NodeConnectionManager : IHostedService
                 bytesRead = 0;
                 while(bytesRead < len) {
                     int r = await stream.ReadAsync(dataBuffer.AsMemory(bytesRead, len - bytesRead));
-                    if (r == 0) return;
+                    if (r == 0) throw new Exception("Connection closed while reading list data.");
                     bytesRead += r;
                 }
                 
                 string json = System.Text.Encoding.UTF8.GetString(dataBuffer);
+                _fileListCache[targetPeerId] = json;
                 OnFilelistReceived?.Invoke(targetPeerId, json);
+                tcs.SetResult();
             }
-        } catch { }
+        }
+        catch (Exception ex)
+        {
+            tcs.TrySetException(ex);
+            throw;
+        }
+        finally
+        {
+            _pendingFileListRequests.TryRemove(targetPeerId, out _);
+        }
     }
 
     public async Task SendMessage(string targetPeerId, string data)
