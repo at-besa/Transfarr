@@ -365,11 +365,21 @@ public class NodeConnectionManager : IHostedService
 
         hub.On<string, string>("OnNegotiationRequested", async (requesterPeerId, requestId) =>
         {
+            logger.LogInfo($"[Node] Negotiation requested by {requesterPeerId} (Request: {requestId})");
+            
             var candidates = new List<string> { _localIp };
             var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp");
-            if (publicIp != _localIp) candidates.Add(publicIp);
-            if (!string.IsNullOrWhiteSpace(ManualPublicIp)) candidates.Add(ManualPublicIp);
             
+            string effectivePublicIp = publicIp;
+            if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(_upnpExternalIp) && !IsPrivateIp(_upnpExternalIp))
+            {
+                effectivePublicIp = _upnpExternalIp;
+            }
+
+            if (!candidates.Contains(effectivePublicIp)) candidates.Add(effectivePublicIp);
+            if (!string.IsNullOrWhiteSpace(ManualPublicIp) && !candidates.Contains(ManualPublicIp)) candidates.Add(ManualPublicIp);
+            
+            logger.LogInfo($"[Node] Submitting candidates for negotiation: {string.Join(", ", candidates)}");
             await hub.InvokeAsync("SubmitIceCandidates", requesterPeerId, requestId, candidates);
         });
 
@@ -440,8 +450,10 @@ public class NodeConnectionManager : IHostedService
                 return;
             }
             
-            TcpClient client = new TcpClient();
-            Stream stream;
+            TcpClient client = null!;
+            Stream stream = null!;
+            TcpClient? finalClient = null;
+            Stream? finalStream = null;
             
             // Generate a unique hash for this specific peer request to avoid cross-connection confusion
             var fileListHash = "ADL_LIST_" + targetPeerId;
@@ -491,29 +503,43 @@ public class NodeConnectionManager : IHostedService
             foreach (var ip in candidates.Distinct())
             {
                 if (string.IsNullOrEmpty(ip)) continue;
+                TcpClient candidateClient = new TcpClient();
                 try
                 {
                     logger.LogInfo($"[Node] Trying candidate: {ip}:{port}...");
                     OnFilelistStatusUpdate?.Invoke(targetPeerId, $"Trying candidate: {ip}...");
                     
-                    var connectTask = client.ConnectAsync(ip, port, serviceCts.Token).AsTask();
-                    if (await Task.WhenAny(connectTask, Task.Delay(2000, serviceCts.Token)) == connectTask)
+                    var connectTask = candidateClient.ConnectAsync(ip, port, serviceCts.Token).AsTask();
+                    if (await Task.WhenAny(connectTask, Task.Delay(3000, serviceCts.Token)) == connectTask)
                     {
                         await connectTask;
                         connected = true;
                         logger.LogInfo($"[Node] Connected to {targetPeer.Name} via {ip}:{port}");
+                        
+                        // Hand off the successful client/stream
+                        finalClient = candidateClient;
+                        finalStream = candidateClient.GetStream();
                         break;
                     }
+                    else
+                    {
+                        logger.LogWarning($"[Node] Connection timeout for {ip}:{port}");
+                        candidateClient.Dispose();
+                    }
                 }
-                catch { /* Try next candidate */ }
+                catch (Exception ex)
+                {
+                    logger.LogWarning($"[Node] Connection failed for {ip}:{port}: {ex.Message}");
+                    candidateClient.Dispose();
+                }
             }
 
-            if (!connected)
+            if (!connected || finalClient == null || finalStream == null)
             {
-                client.Dispose();
-                throw new Exception($"Failed to connect to {targetPeer.Name} after trying all candidates (Direct IP, UPnP, Mirror).");
+                throw new Exception($"Failed to connect to {targetPeer.Name} after trying all candidates ({string.Join(", ", candidates)}).");
             }
-            stream = client.GetStream();
+            client = finalClient;
+            stream = finalStream;
         }
         
         OnFilelistStatusUpdate?.Invoke(targetPeerId, "Connected! Downloading list...");
