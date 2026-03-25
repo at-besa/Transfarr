@@ -317,23 +317,33 @@ public class NodeConnectionManager : IHostedService
             }
         });
 
-        hub.On<IEnumerable<string>, int, string>("OnConnectBackRequested", async (ips, port, hash) =>
+        hub.On<List<string>, int, string>("OnConnectBackRequested", async (ips, port, hash) =>
         {
+            logger.LogInfo($"[Node] Received ConnectBack request for {hash}. Candidates: {string.Join(", ", ips)}");
             foreach (var ip in ips)
             {
                 try 
                 {
+                    logger.LogInfo($"[Node] Attempting ConnectBack to {ip}:{port} for {hash}...");
                     // Basic check to see if we can reach it
                     using var client = new System.Net.Sockets.TcpClient();
                     var connectTask = client.ConnectAsync(ip, port, serviceCts.Token).AsTask();
                     if (await Task.WhenAny(connectTask, Task.Delay(2000, serviceCts.Token)) == connectTask)
                     {
                         await connectTask;
+                        logger.LogInfo($"[Node] ConnectBack SUCCESS via {ip}:{port}");
                         await transferServer.HandlePreConnectedClient(client, hash, ip, serviceCts.Token);
                         break; // Success
                     }
+                    else
+                    {
+                        logger.LogWarning($"[Node] ConnectBack timed out for {ip}:{port}");
+                    }
                 }
-                catch { /* Try next IP */ }
+                catch (Exception ex)
+                {
+                    logger.LogWarning($"[Node] ConnectBack failed for {ip}:{port}: {ex.Message}");
+                }
             }
         });
 

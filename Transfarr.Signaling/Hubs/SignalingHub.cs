@@ -119,6 +119,8 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         if (!string.IsNullOrEmpty(requesterPeer.LocalIp) && !candidates.Contains(requesterPeer.LocalIp)) candidates.Add(requesterPeer.LocalIp);
         if (!string.IsNullOrEmpty(requesterPeer.PublicIp) && !candidates.Contains(requesterPeer.PublicIp)) candidates.Add(requesterPeer.PublicIp);
 
+        Console.WriteLine($"[Signaling] Requesting ConnectBack from {targetPeer.Name} (target) to {requesterPeer.Name} (requester) for {fileHash} via {string.Join(", ", candidates)}");
+
         // Signal to the target (passive uploader) to connect to the requester (active downloader)
         await Clients.Client(targetPeer.ConnectionId).SendAsync("OnConnectBackRequested", candidates.Distinct().ToList(), requesterPeer.TransferPort, fileHash);
     }
