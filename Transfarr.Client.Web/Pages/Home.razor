@@ -8,6 +8,13 @@
 
 <PageTitle>Transfarr Client</PageTitle>
 
+<style>
+    .btn-clean:disabled {
+        cursor: default;
+        opacity: 0.6;
+    }
+</style>
+
 @if (!Connection.IsConnected)
 {
     // Connect dialog
@@ -83,11 +90,11 @@ else if (!Connection.IsConnectedToGlobalHub)
             <div style="display:flex; gap:16px; margin-bottom:20px;">
                 <div style="flex:1;">
                     <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:8px;">Username</label>
-                    <input type="text" @bind="_username" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="e.g. MasterNode" />
+                    <input type="text" @bind="_username" @bind:event="oninput" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="e.g. MasterNode" />
                 </div>
                 <div style="flex:1;">
                     <label style="font-size:12px; font-weight:600; color:var(--text-muted); display:block; margin-bottom:8px;">Password</label>
-                    <input type="password" @bind="_password" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="********" />
+                    <input type="password" @bind="_password" @bind:event="oninput" class="input-clean" style="width:100%; padding:10px; box-sizing:border-box;" placeholder="********" />
                 </div>
             </div>
 
@@ -111,7 +118,7 @@ else if (!Connection.IsConnectedToGlobalHub)
                     }
 
                     <div style="margin-top:12px; display:flex; gap:8px;">
-                        <input type="text" @bind="_selectedFavorite" class="input-clean" style="flex:1; padding:8px; font-size:12px;" placeholder="e.g. localhost:5135" />
+                        <input type="text" @bind="_selectedFavorite" @bind:event="oninput" class="input-clean" style="flex:1; padding:8px; font-size:12px;" placeholder="e.g. localhost:5135" />
                         <button class="btn-clean" style="padding:8px 12px; font-size:12px;" @onclick="AddFavorite" disabled="@(string.IsNullOrWhiteSpace(_selectedFavorite))">⭐ Save</button>
                     </div>
                 </div>
@@ -122,7 +129,7 @@ else if (!Connection.IsConnectedToGlobalHub)
                 <div style="color:#ff4d4d; font-size:12px; margin-bottom:16px; text-align:center; background:rgba(255,77,77,0.1); padding:8px; border-radius:4px;">@_loginError</div>
             }
 
-            <button class="btn-clean" style="width:100%; padding:12px 16px; font-size:14px; background-color:var(--accent-blue); color:white; border:none;" 
+            <button class="btn-clean login-btn" style="width:100%; padding:12px 16px; font-size:14px; background-color:var(--accent-blue); color:white; border:none;" 
                     @onclick="ConnectGlobal" disabled="@(string.IsNullOrWhiteSpace(_username) || string.IsNullOrWhiteSpace(_password) || string.IsNullOrWhiteSpace(_selectedFavorite) || _isConnectingGlobal)">
                 @(_isConnectingGlobal ? "Processing..." : (_isRegistering ? "Join & Register" : "Login & Connect"))
             </button>

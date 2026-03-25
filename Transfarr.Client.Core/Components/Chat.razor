@@ -135,6 +135,10 @@
             textToSend = textToSend.Replace(entry.Key, entry.Value, StringComparison.OrdinalIgnoreCase);
         }
 
+        _messageText = "";
+        _showEmojiPicker = false;
+        StateHasChanged();
+
         if (_activeTab == "Global")
         {
             await Connection.SendGlobalChat(textToSend);
@@ -143,9 +147,6 @@
         {
             await Connection.SendPrivateMessage(_activeTab, textToSend);
         }
-
-        _messageText = "";
-        _showEmojiPicker = false;
     }
 
     private void HandleKeyUp(KeyboardEventArgs e)
