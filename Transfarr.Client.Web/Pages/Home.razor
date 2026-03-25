@@ -13,6 +13,30 @@
         cursor: default;
         opacity: 0.6;
     }
+
+    .folder-item {
+        padding: 10px 16px; 
+        cursor: pointer; 
+        font-family: monospace; 
+        font-size: 13px; 
+        display: flex; 
+        align-items: center; 
+        gap: 12px; 
+        border-radius: 4px; 
+        transition: all 0.1s;
+        color: var(--text-muted);
+        user-select: none;
+    }
+
+    .folder-item:hover {
+        background-color: rgba(255,255,255,0.05);
+    }
+
+    .folder-item.selected {
+        background-color: var(--accent-blue);
+        color: white;
+        font-weight: 600;
+    }
 </style>
 
 @if (!Connection.IsConnected)
@@ -57,7 +81,7 @@ else if (!_isDownloadPathConfigured)
                     {
                         var isSelected = dir == _setupSelectedDir;
                         <div @onclick="() => _setupSelectedDir = dir" @ondblclick="() => NavigateToSetup(dir)" 
-                             style="padding:10px 16px; cursor:pointer; font-family:monospace; font-size:13px; display:flex; align-items:center; gap:12px; border-radius:4px; transition:all 0.1s; @(isSelected ? "background-color:var(--accent-blue); color:white; font-weight:600;" : "color:var(--text-muted);")">
+                             class="folder-item @(isSelected ? "selected" : "")">
                             <span style="font-size:16px; opacity:@(isSelected ? "1" : "0.5");">📁</span> 
                             <span>@(string.IsNullOrEmpty(_setupOsPath) ? dir : System.IO.Path.GetFileName(dir))</span>
                         </div>
