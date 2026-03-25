@@ -490,6 +490,7 @@ public class NodeConnectionManager : IHostedService
                 
                 await writer.WriteLineAsync("REQ_LIST|");
                 await writer.FlushAsync();
+                logger.LogInfo($"[Node] Sent REQ_LIST| to {targetPeer.Name}. Waiting for data length...");
                 
                 byte[] lenBuffer = new byte[4];
                 int bytesRead = 0;
@@ -498,12 +499,13 @@ public class NodeConnectionManager : IHostedService
                     if (r == 0) throw new Exception("Connection closed while reading list length.");
                     bytesRead += r;
                 }
-                int length = BitConverter.ToInt32(lenBuffer, 0);
+                int len = BitConverter.ToInt32(lenBuffer, 0);
+                logger.LogInfo($"[Node] File list length: {len} bytes. Downloading...");
                 
-                byte[] dataBuffer = new byte[length];
+                byte[] dataBuffer = new byte[len];
                 bytesRead = 0;
-                while(bytesRead < length) {
-                    int r = await stream.ReadAsync(dataBuffer.AsMemory(bytesRead, length - bytesRead));
+                while(bytesRead < len) {
+                    int r = await stream.ReadAsync(dataBuffer.AsMemory(bytesRead, len - bytesRead));
                     if (r == 0) return;
                     bytesRead += r;
                 }

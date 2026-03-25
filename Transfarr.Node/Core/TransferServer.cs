@@ -13,7 +13,7 @@ using System.Linq;
 
 namespace Transfarr.Node.Core;
 
-public class TransferServer(ShareManager shareManager, ShareDatabase db)
+public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger)
 {
     private TcpListener? listener;
     private readonly CancellationTokenSource cts = new();
@@ -112,13 +112,14 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                 else if (requestLine.StartsWith("CB_READY|"))
                 {
                     var hash = requestLine.Split('|')[1];
+                    logger.LogInfo($"[TransferServer] Reverse connection SUCCESS from {(client.Client.RemoteEndPoint)} for {hash}");
                     OnReverseConnectionReceived?.Invoke(client, hash);
                     return; // Handed off to DownloadManager, do not dispose here
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[TransferServer] Client handle error: {ex.Message}");
+                logger.LogWarning($"[TransferServer] Client handle error from {(client.Client.RemoteEndPoint)}: {ex.Message}");
             }
         }
     }
@@ -204,6 +205,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
     {
         try
         {
+            logger.LogInfo($"[TransferServer] Handling pre-connected uploader client ({ip}) for {fileHash}");
             using (client)
             {
                 using var stream = client.GetStream();
@@ -212,10 +214,12 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                 // Notify the downloader that we are responding to their ConnectBack request
                 await writer.WriteLineAsync($"CB_READY|{fileHash}");
                 await writer.FlushAsync();
+                logger.LogInfo($"[TransferServer] Sent CB_READY|{fileHash} to downloader ({ip})");
 
                 // Wait for the downloader to send the actually desired request
                 using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
                 var reqLine = await reader.ReadLineAsync(token);
+                logger.LogInfo($"[TransferServer] Received request from downloader ({ip}): {reqLine}");
                 if (reqLine == null) return;
 
                 if (reqLine.StartsWith("REQ_FILE|"))
@@ -235,7 +239,9 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
                 }
                 else if (reqLine == "REQ_LIST|")
                 {
+                    logger.LogInfo($"[TransferServer] Sending full file list to ({ip})...");
                     await SendFullFileListAsync(stream);
+                    logger.LogInfo($"[TransferServer] File list sent to ({ip}).");
                 }
                 else if (reqLine.StartsWith("REQ_DIR|"))
                 {
@@ -246,7 +252,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db)
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[TransferServer] ConnectBack handling failed for {ip}: {ex.Message}");
+            logger.LogWarning($"[TransferServer] ConnectBack handling failed for {ip}: {ex.Message}");
         }
     }
 
