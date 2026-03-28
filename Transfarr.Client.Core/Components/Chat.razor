@@ -6,16 +6,16 @@
 <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:8px; display:flex; flex-direction:column; height:100%; overflow:hidden; box-shadow:0 4px 20px rgba(0,0,0,0.2);">
     <!-- Chat Header / Tabs -->
     <div style="background-color:rgba(0,0,0,0.2); border-bottom:1px solid var(--border-color); padding:0 12px; display:flex; gap:4px; overflow-x:auto; min-height:40px; align-items:flex-end;">
-        <div @onclick='() => _activeTab = "Global"' 
-             style='padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer; border-bottom:2px solid @(_activeTab == "Global" ? "#40c057" : "transparent"); color:@(_activeTab == "Global" ? "white" : "var(--text-muted)"); transition:all 0.2s;'>
+        <div @onclick='() => activeTab = "Global"' 
+             style='padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer; border-bottom:2px solid @(activeTab == "Global" ? "#40c057" : "transparent"); color:@(activeTab == "Global" ? "white" : "var(--text-muted)"); transition:all 0.2s;'>
             🌍 Global Hub
         </div>
         
         @foreach (var peerId in Connection.PrivateMessages.Keys)
         {
             var peer = Connection.OnlinePeers.FirstOrDefault(p => p.PeerId == peerId);
-            <div @onclick="() => _activeTab = peerId" 
-                 style='padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer; border-bottom:2px solid @(_activeTab == peerId ? "#40c057" : "transparent"); color:@(_activeTab == peerId ? "white" : "var(--text-muted)"); transition:all 0.2s; display:flex; align-items:center; gap:6px;'>
+            <div @onclick="() => activeTab = peerId" 
+                 style='padding:8px 16px; font-size:12px; font-weight:600; cursor:pointer; border-bottom:2px solid @(activeTab == peerId ? "#40c057" : "transparent"); color:@(activeTab == peerId ? "white" : "var(--text-muted)"); transition:all 0.2s; display:flex; align-items:center; gap:6px;'>
                 <span>👤</span> @(peer?.Name ?? "Peer")
                 <span @onclick="() => CloseTab(peerId)" @onclick:stopPropagation="true" style="font-size:10px; opacity:0.5; padding:2px;">✕</span>
             </div>
@@ -28,7 +28,7 @@
         {
             var isMention = msg.IsMention && !msg.IsMe;
             <div style='max-width:85%; @(msg.IsMe ? "align-self:flex-end;" : "align-self:flex-start;")'>
-                @if (!msg.IsMe && _activeTab == "Global")
+                @if (!msg.IsMe && activeTab == "Global")
                 {
                     <div style="font-size:10px; color:var(--text-muted); margin-bottom:2px; margin-left:8px;">@msg.SenderName</div>
                 }
@@ -55,15 +55,15 @@
 
     <!-- Chat Footer -->
     <div style="padding:16px; background-color:rgba(0,0,0,0.1); border-top:1px solid var(--border-color); position:relative;">
-        @if (_showEmojiPicker)
+        @if (showEmojiPicker)
         {
             <div style="position:absolute; bottom:100%; left:16px; width:300px; background:var(--bg-panel); border:1px solid var(--border-color); border-radius:8px; box-shadow:0 -4px 20px rgba(0,0,0,0.4); z-index:100; padding:12px; margin-bottom:8px; animation: slideUp 0.2s ease; box-sizing: border-box; overflow: hidden;">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
                     <span style="font-size:11px; font-weight:600; color:var(--text-muted); text-transform:uppercase;">Pick an Emoji</span>
-                    <span @onclick="() => _showEmojiPicker = false" style="cursor:pointer; font-size:12px; opacity:0.5;">✕</span>
+                    <span @onclick="() => showEmojiPicker = false" style="cursor:pointer; font-size:12px; opacity:0.5;">✕</span>
                 </div>
                 <div style="display:grid; grid-template-columns: repeat(6, 1fr); gap:6px; max-height:200px; overflow-y:auto; overflow-x:hidden; padding-right:8px; box-sizing: border-box;">
-                    @foreach (var emoji in _allEmojis)
+                    @foreach (var emoji in allEmojis)
                     {
                         <div @onclick="() => AppendEmoji(emoji)" 
                              style="font-size:20px; padding:4px; cursor:pointer; text-align:center; border-radius:4px; transition:background 0.1s;" 
@@ -76,13 +76,13 @@
         }
 
         <div style="display:flex; gap:12px; align-items:center;">
-            <button class="btn-clean" @onclick="() => _showEmojiPicker = !_showEmojiPicker" 
-                    style='font-size:18px; padding:6px; background:@(_showEmojiPicker ? "rgba(255,255,255,0.05)" : "transparent"); border-radius:4px;'>
+            <button class="btn-clean" @onclick="() => showEmojiPicker = !showEmojiPicker" 
+                    style='font-size:18px; padding:6px; background:@(showEmojiPicker ? "rgba(255,255,255,0.05)" : "transparent"); border-radius:4px;'>
                 😊
             </button>
-            <input type="text" @bind="_messageText" @bind:event="oninput" @onkeyup="HandleKeyUp"
+            <input type="text" @bind="messageText" @bind:event="oninput" @onkeyup="HandleKeyUp"
                    class="input-clean" style="flex:1; padding:10px 14px; border-radius:6px; font-size:13px;" 
-                   placeholder='Type a message @(_activeTab == "Global" ? "to everyone" : "privately")...' />
+                   placeholder='Type a message @(activeTab == "Global" ? "to everyone" : "privately")...' />
             <button class="btn-clean" @onclick="SendMessage" 
                     style="background:#40c057; color:white; padding:8px 20px; border-radius:6px; font-weight:600; font-size:13px; box-shadow:0 2px 8px rgba(64, 192, 87, 0.3);">
                 Send
@@ -97,15 +97,15 @@
 </style>
 
 @code {
-    private string _messageText = "";
-    private string _activeTab = "Global";
-    private bool _showEmojiPicker = false;
+    private string messageText = "";
+    private string activeTab = "Global";
+    private bool showEmojiPicker = false;
     
-    private string[] _allEmojis = { 
+    private string[] allEmojis = { 
         "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰", "😘", "😜", "🤑", "🤔", "🤫", "🤨", "😐", "😑", "🙄", "😬", "🤥", "😌", "😴", "🤒", "🥵", "🥶", "🤯", "🥳", "😎", "🧐", "😕", "😟", "😮", "🥺", "😭", "😤", "😡", "🤢", "🤡", "👻", "💀", "👽", "🤖", "💩", "👋", "👌", "✌️", "🤞", "🤟", "🤘", "🤙", "👊", "🖕", "🤝", "🙏", "❤️", "🧡", "💛", "💚", "💙", "💜", "🖤", "💯", "🔥", "✨", "⭐", "🌟", "⚡", "💥", "🚀", "💎", "⚙️", "📂", "🔍", "✅", "⚠️", "🚫"
     };
 
-    private static readonly Dictionary<string, string> _emojiMap = new()
+    private static readonly Dictionary<string, string> emojiMap = new()
     {
         { ":grinning:", "😀" }, { ":joy:", "😂" }, { ":rocket:", "🚀" }, { ":gem:", "💎" }, { ":fire:", "🔥" }, { ":gear:", "⚙️" }, { ":file:", "📂" }, { ":star:", "⭐" }, { ":heart:", "❤️" }, { ":check:", "✅" }, { ":warn:", "⚠️" }, { ":smile:", "😊" }, { ":laugh:", "😆" }, { ":wink:", "😉" }, { ":cool:", "😎" }
     };
@@ -119,33 +119,33 @@
 
     private IEnumerable<ChatMessage> GetActiveMessages()
     {
-        if (_activeTab == "Global") return Connection.GlobalMessages;
-        if (Connection.PrivateMessages.TryGetValue(_activeTab, out var msgs)) return msgs;
+        if (activeTab == "Global") return Connection.GlobalMessages;
+        if (Connection.PrivateMessages.TryGetValue(activeTab, out var msgs)) return msgs;
         return Enumerable.Empty<ChatMessage>();
     }
 
     private async Task SendMessage()
     {
-        if (string.IsNullOrWhiteSpace(_messageText)) return;
+        if (string.IsNullOrWhiteSpace(messageText)) return;
 
         // Emoji shortcode replacement
-        var textToSend = _messageText;
-        foreach (var entry in _emojiMap)
+        var textToSend = messageText;
+        foreach (var entry in emojiMap)
         {
             textToSend = textToSend.Replace(entry.Key, entry.Value, StringComparison.OrdinalIgnoreCase);
         }
 
-        _messageText = "";
-        _showEmojiPicker = false;
+        messageText = "";
+        showEmojiPicker = false;
         StateHasChanged();
 
-        if (_activeTab == "Global")
+        if (activeTab == "Global")
         {
             await Connection.SendGlobalChat(textToSend);
         }
         else
         {
-            await Connection.SendPrivateMessage(_activeTab, textToSend);
+            await Connection.SendPrivateMessage(activeTab, textToSend);
         }
     }
 
@@ -156,18 +156,18 @@
 
     private void AppendEmoji(string emoji)
     {
-        _messageText += emoji;
+        messageText += emoji;
     }
 
     private void CloseTab(string peerId)
     {
         Connection.PrivateMessages.Remove(peerId);
-        if (_activeTab == peerId) _activeTab = "Global";
+        if (activeTab == peerId) activeTab = "Global";
     }
 
     public void OpenPrivateChat(string peerId)
     {
-        _activeTab = peerId;
+        activeTab = peerId;
         StateHasChanged();
     }
 

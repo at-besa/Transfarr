@@ -1,24 +1,33 @@
 using Transfarr.Signaling.Hubs;
 using Transfarr.Signaling.Data;
 using Transfarr.Signaling.Services;
+using Transfarr.Signaling.Options;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.Extensions.Options;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.WebHost.UseUrls("http://0.0.0.0:5135");
+
+// Bind Options
+builder.Services.Configure<HubOptions>(builder.Configuration.GetSection(HubOptions.SectionName));
+
+// Local Options for Startup
+var hubOptions = builder.Configuration.GetSection(HubOptions.SectionName).Get<HubOptions>() ?? new HubOptions();
+builder.WebHost.UseUrls(hubOptions.HubUrl);
 
 // Add services to the container.
 builder.Services.AddSignalR();
 builder.Services.AddControllers();
 builder.Services.AddSingleton<UserDatabase>();
 builder.Services.AddSingleton<NetworkStateService>();
+builder.Services.AddScoped<HubAuthService>();
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
 // Configure JWT
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "TransfarrSuperSecretKey1234567890123456";
+var jwtKey = hubOptions.Jwt.Key;
 var key = Encoding.ASCII.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(x =>

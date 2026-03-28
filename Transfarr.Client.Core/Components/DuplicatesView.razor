@@ -12,13 +12,13 @@
         <button class="btn-clean" @onclick="LoadDuplicates">⟳ Refresh Scan</button>
     </div>
 
-    @if (_isLoading)
+    @if (isLoading)
     {
         <div style="padding:64px; text-align:center; color:var(--text-muted);">
             Scanning your shares for duplicates...
         </div>
     }
-    else if (!_duplicates.Any())
+    else if (!duplicates.Any())
     {
         <div style="padding:64px; text-align:center; background-color:var(--bg-panel); border:1px dashed var(--border-color); border-radius:4px;">
             <div style="font-size:32px; margin-bottom:16px;">📑</div>
@@ -29,7 +29,7 @@
     else
     {
         <div style="display:flex; flex-direction:column; gap:16px;">
-            @foreach (var dup in _duplicates)
+            @foreach (var dup in duplicates)
             {
                 <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
                     <div style="padding:12px 16px; background-color:var(--bg-header); border-bottom:1px solid var(--border-color); display:flex; justify-content:space-between; align-items:center;">
@@ -50,8 +50,8 @@
 </div>
 
 @code {
-    private Dictionary<string, List<string>> _duplicates = new();
-    private bool _isLoading = true;
+    private Dictionary<string, List<string>> duplicates = new();
+    private bool isLoading = true;
 
     protected override async Task OnInitializedAsync()
     {
@@ -61,10 +61,10 @@
 
     private async Task LoadDuplicates()
     {
-        _isLoading = true;
+        isLoading = true;
         StateHasChanged();
-        _duplicates = await Connection.GetDuplicates();
-        _isLoading = false;
+        duplicates = await Connection.GetDuplicates();
+        isLoading = false;
         StateHasChanged();
     }
 

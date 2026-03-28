@@ -7,11 +7,20 @@ using Transfarr.Shared.Models;
 using System.Linq;
 using System.IO;
 
+using Transfarr.Node.Options;
+using Microsoft.Extensions.Options;
+
 var builder = WebApplication.CreateBuilder(args);
 
-var nodePort = builder.Configuration.GetValue<int>("Transfarr:NodePort", 5150);
+// Bind Options
+builder.Services.Configure<NodeOptions>(builder.Configuration.GetSection(NodeOptions.SectionName));
+
+// Local Options for Startup
+var nodeOptions = builder.Configuration.GetSection(NodeOptions.SectionName).Get<NodeOptions>() ?? new NodeOptions();
+var nodePort = nodeOptions.NodePort;
 builder.WebHost.UseUrls($"http://localhost:{nodePort}");
 
+// ... usings ...
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("CorsPolicy", policy => policy
@@ -21,11 +30,6 @@ builder.Services.AddCors(options =>
         .AllowCredentials());
 });
 builder.Services.AddSignalR();
-
-// Load Transfarr Config
-var transfarrConfig = builder.Configuration.GetSection("Transfarr");
-var defaultHubUrls = transfarrConfig.GetSection("DefaultHubUrls").Get<string[]>() ?? Array.Empty<string>();
-var defaultNodeName = transfarrConfig.GetValue<string>("DefaultNodeName") ?? "Transfarr-Node";
 
 // Register Core Services
 builder.Services.AddSingleton<SystemLogger>();
@@ -63,7 +67,7 @@ dl.Initialize();
 node.OnStateChanged += () => {
     hubContext.Clients.All.SendAsync("StateUpdate", node.OnlinePeers);
     hubContext.Clients.All.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
-    hubContext.Clients.All.SendAsync("ConfigurationDefaults", defaultHubUrls, defaultNodeName);
+    hubContext.Clients.All.SendAsync("ConfigurationDefaults", nodeOptions.DefaultHubUrls, nodeOptions.DefaultNodeName);
     
     var self = new PeerInfo("", node.PeerId, node.NodeName, sm.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
     hubContext.Clients.All.SendAsync("SelfStatus", self);

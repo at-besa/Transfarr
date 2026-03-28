@@ -2,13 +2,22 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 using System.IO;
+using Microsoft.Extensions.Options;
+using Transfarr.Node.Options;
 
 namespace Transfarr.Node.Core;
 
-public class ShareDatabase()
+public class ShareDatabase
 {
-    private readonly string connectionString = $"Data Source={Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "shares.db")}";
+    private readonly string connectionString;
     private readonly object dbLock = new();
+    private readonly NodeOptions options;
+
+    public ShareDatabase(IOptions<NodeOptions> options)
+    {
+        this.options = options.Value;
+        connectionString = $"Data Source={Path.Combine(AppDomain.CurrentDomain.BaseDirectory, this.options.Storage.DatabasePath)}";
+    }
 
     static ShareDatabase()
     {

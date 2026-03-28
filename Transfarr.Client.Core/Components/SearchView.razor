@@ -9,15 +9,15 @@
         <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin:0 0 16px 0;">Global Network Search</h2>
         <div style="display:flex; gap:12px;">
             <div style="flex:1; position:relative;">
-                <input type="text" @bind="_searchQuery" @bind:event="oninput" @onkeyup="HandleKeyUp"
+                <input type="text" @bind="searchQuery" @bind:event="oninput" @onkeyup="HandleKeyUp"
                        placeholder="Search for files (e.g. .mkv, .pdf, collection...)"
                        style="width:100%; padding:12px 16px; background-color:var(--bg-app); border:1px solid var(--border-color); border-radius:4px; color:var(--text-highlight); font-size:15px; outline:none; transition:border-color 0.2s;" />
-                @if (_isSearching)
+                @if (isSearching)
                 {
                     <div style="position:absolute; right:12px; top:12px;" class="spinning">⏳</div>
                 }
             </div>
-            <button class="btn-clean" style="padding:0 32px; font-weight:600; background-color:var(--accent-blue); color:white; border:none; border-radius:4px;" @onclick="StartSearch" disabled="@(string.IsNullOrWhiteSpace(_searchQuery) || _isSearching)">
+            <button class="btn-clean" style="padding:0 32px; font-weight:600; background-color:var(--accent-blue); color:white; border:none; border-radius:4px;" @onclick="StartSearch" disabled="@(string.IsNullOrWhiteSpace(searchQuery) || isSearching)">
                 Search
             </button>
         </div>
@@ -41,7 +41,7 @@
             @foreach (var group in Connection.SearchResults.GroupBy(r => r.Peer.PeerId))
             {
                 var peer = group.First().Peer;
-                var isExpanded = !_collapsedPeers.Contains(peer.PeerId);
+                var isExpanded = !collapsedPeers.Contains(peer.PeerId);
                 var results = group.ToList();
 
                 <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
@@ -120,9 +120,9 @@
 </style>
 
 @code {
-    private string _searchQuery = "";
-    private bool _isSearching = false;
-    private HashSet<string> _collapsedPeers = new();
+    private string searchQuery = "";
+    private bool isSearching = false;
+    private HashSet<string> collapsedPeers = new();
 
     protected override void OnInitialized()
     {
@@ -131,15 +131,15 @@
 
     private async Task StartSearch()
     {
-        if (string.IsNullOrWhiteSpace(_searchQuery)) return;
+        if (string.IsNullOrWhiteSpace(searchQuery)) return;
         
-        _isSearching = true;
-        _collapsedPeers.Clear(); // Expand new results
-        await Connection.PerformSearch(_searchQuery);
+        isSearching = true;
+        collapsedPeers.Clear(); // Expand new results
+        await Connection.PerformSearch(searchQuery);
         
         // Let it "spin" for a bit to show activity
         _ = Task.Delay(1500).ContinueWith(_ => {
-            _isSearching = false;
+            isSearching = false;
             InvokeAsync(StateHasChanged);
         });
     }
@@ -155,8 +155,8 @@
     }
 
     private void TogglePeer(string peerId) {
-        if (_collapsedPeers.Contains(peerId)) _collapsedPeers.Remove(peerId);
-        else _collapsedPeers.Add(peerId);
+        if (collapsedPeers.Contains(peerId)) collapsedPeers.Remove(peerId);
+        else collapsedPeers.Add(peerId);
     }
 
     private async Task Download(SearchResult result)

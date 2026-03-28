@@ -1,0 +1,56 @@
+root = true
+
+[*.cs]
+
+# --- NAMING CONVENTIONS ---
+
+# Private fields: camelCase (no underscore prefix)
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields_symbols
+dotnet_naming_rule.private_fields_should_be_camel_case.style  = camel_case_style
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = suggestion
+
+dotnet_naming_symbols.private_fields_symbols.applicable_kinds = field
+dotnet_naming_symbols.private_fields_symbols.applicable_accessibilities = private
+
+dotnet_naming_style.camel_case_style.capitalization = camel_case
+dotnet_naming_style.camel_case_style.required_prefix = 
+
+# Constants: PascalCase
+dotnet_naming_rule.constants_should_be_pascal_case.symbols = constant_symbols
+dotnet_naming_rule.constants_should_be_pascal_case.style  = pascal_case_style
+dotnet_naming_rule.constants_should_be_pascal_case.severity = suggestion
+
+dotnet_naming_symbols.constant_symbols.applicable_kinds = field
+dotnet_naming_symbols.constant_symbols.required_modifiers = static, readonly
+
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+# --- CODE STYLE ---
+
+# Use var where possible
+dotnet_style_var_for_built_in_types = true:suggestion
+dotnet_style_var_when_type_is_apparent = true:suggestion
+dotnet_style_var_elsewhere = true:suggestion
+
+# Use primary constructors where possible (C# 12+)
+csharp_style_prefer_primary_constructors = true:suggestion
+
+# Organize usings
+dotnet_separate_import_directive_groups = false
+dotnet_sort_system_directives_first = true
+csharp_using_directive_placement = outside_namespace:suggestion
+
+# Newline settings
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Indentation
+indent_style = tab
+indent_size = 4
+tab_width = 4
+insert_final_newline = true

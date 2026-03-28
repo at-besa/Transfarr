@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 using Transfarr.Shared.Hashing;
 using Transfarr.Shared.Models;
 
+using Microsoft.Extensions.Options;
+using Transfarr.Node.Options;
+
 namespace Transfarr.Node.Core;
 
 // Represents a queued file for the Parallel CPU worker
@@ -18,8 +21,9 @@ public class HashJob
     public FileListItem Node { get; set; } = default!;
 }
 
-public class ShareManager(SystemLogger logger, ShareDatabase db)
+public class ShareManager(SystemLogger logger, ShareDatabase db, IOptions<NodeOptions> options)
 {
+    private readonly NodeOptions options = options.Value;
     private FileList localFileList = new();
     private readonly Dictionary<string, List<string>> filePaths = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> sharedDirectories = new(StringComparer.OrdinalIgnoreCase);
@@ -54,7 +58,7 @@ public class ShareManager(SystemLogger logger, ShareDatabase db)
     private void SetupRefreshTimer()
     {
         refreshTimer?.Dispose();
-        refreshTimer = new System.Timers.Timer(TimeSpan.FromMinutes(5).TotalMilliseconds);
+        refreshTimer = new System.Timers.Timer(TimeSpan.FromMinutes(options.Storage.ShareRefreshIntervalMinutes).TotalMilliseconds);
         refreshTimer.Elapsed += (s, e) => {
             if (!CurrentProgress.IsHashing)
             {

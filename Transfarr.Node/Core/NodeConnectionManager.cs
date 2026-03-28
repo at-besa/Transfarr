@@ -8,6 +8,9 @@ using Microsoft.Extensions.Configuration;
 using Mono.Nat;
 using Transfarr.Shared.Models;
 
+using Transfarr.Node.Options;
+using Microsoft.Extensions.Options;
+
 namespace Transfarr.Node.Core;
 
 public class NodeConnectionManager : IHostedService
@@ -19,18 +22,18 @@ public class NodeConnectionManager : IHostedService
     private readonly ShareDatabase db;
     private readonly DownloadManager downloadManager;
     private readonly SystemLogger logger;
-    private readonly IConfiguration configuration;
+    private readonly NodeOptions options;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<IEnumerable<string>>> pendingNegotiations = new();
     private readonly CancellationTokenSource serviceCts = new();
 
-    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger, IConfiguration configuration)
+    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger, IOptions<NodeOptions> options)
     {
         this.shareManager = shareManager;
         this.transferServer = transferServer;
         this.db = db;
         this.downloadManager = downloadManager;
         this.logger = logger;
-        this.configuration = configuration;
+        this.options = options.Value;
         
         // Link DownloadManager to Hub signaling
         this.downloadManager.RequestConnectBackAction = async (targetId, hash) => {
@@ -53,7 +56,7 @@ public class NodeConnectionManager : IHostedService
         };
     }
     public string PeerId { get; } = Guid.NewGuid().ToString("N");
-    public string NodeName { get; set; } = "DesktopNode_" + Random.Shared.Next(100, 999);
+    public string NodeName { get; set; } = string.Empty;
     
     public string GlobalHubUrl { get; private set; } = string.Empty;
     public bool IsConnectedToGlobalHub => hub?.State == HubConnectionState.Connected;
@@ -65,10 +68,10 @@ public class NodeConnectionManager : IHostedService
     public ConnectivityMode CurrentConnectivityMode { get; private set; } = ConnectivityMode.Auto;
     public string? ManualPublicIp { get; private set; }
     
-    private string _localIp = "127.0.0.1";
-    private string? _upnpExternalIp;
-    private readonly ConcurrentDictionary<string, string> _fileListCache = new();
-    private readonly ConcurrentDictionary<string, Task> _pendingFileListRequests = new();
+    private string localIp = "127.0.0.1";
+    private string? upnpExternalIp;
+    private readonly ConcurrentDictionary<string, string> fileListCache = new();
+    private readonly ConcurrentDictionary<string, Task> pendingFileListRequests = new();
     public bool IsPassive { get; private set; } = false;
 
     public event Action? OnStateChanged;
@@ -82,7 +85,9 @@ public class NodeConnectionManager : IHostedService
     {
         transferServer.Start();
         
-        var enableUPnP = configuration.GetValue<bool>("P2PSettings:EnableUPnP", true);
+        NodeName = options.DefaultNodeName;
+
+        var enableUPnP = options.Network.EnableUPnP;
         if (enableUPnP)
         {
             await SetupUPnP(serviceCts.Token);
@@ -196,8 +201,8 @@ public class NodeConnectionManager : IHostedService
                 
                 // 1. Detect Local IP
                 var host = await System.Net.Dns.GetHostEntryAsync(System.Net.Dns.GetHostName(), cancellationToken);
-                _localIp = host.AddressList.FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.ToString() ?? "127.0.0.1";
-                logger.LogInfo($"[Node] Local IP detected: {_localIp}");
+                localIp = host.AddressList.FirstOrDefault(ip => ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.ToString() ?? "127.0.0.1";
+                logger.LogInfo($"[Node] Local IP detected: {localIp}");
 
                 // 2. Get Public IP from Hub (Mirroring)
                 var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp", cancellationToken);
@@ -216,8 +221,8 @@ public class NodeConnectionManager : IHostedService
                 }
                 else
                 {
-                    bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort, cancellationToken);
-                    if (!isActive && publicIp != _localIp)
+                    bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", localIp, transferServer.ListenPort, cancellationToken);
+                    if (!isActive && publicIp != localIp)
                     {
                         // Try testing with public IP too
                         isActive = await hub.InvokeAsync<bool>("TestConnectivity", publicIp, transferServer.ListenPort, cancellationToken);
@@ -226,14 +231,14 @@ public class NodeConnectionManager : IHostedService
                 }
                 
                 string effectivePublicIp = publicIp;
-                if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(_upnpExternalIp) && !IsPrivateIp(_upnpExternalIp))
+                if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(upnpExternalIp) && !IsPrivateIp(upnpExternalIp))
                 {
-                    effectivePublicIp = _upnpExternalIp;
+                    effectivePublicIp = upnpExternalIp;
                     logger.LogInfo($"[Node] Overriding public IP with UPnP external IP: {effectivePublicIp} (Hub reported local IP {publicIp})");
                 }
                 
-                string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : effectivePublicIp);
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, _localIp, effectivePublicIp);
+                string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? localIp : effectivePublicIp);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, localIp, effectivePublicIp);
             await hub.InvokeAsync("JoinAsNode", peerInfo, cancellationToken);
         }
         catch (Exception ex)
@@ -283,7 +288,7 @@ public class NodeConnectionManager : IHostedService
             if (peer != null)
             {
                 OnlinePeers.Remove(peer);
-                _fileListCache.TryRemove(id, out _);
+                fileListCache.TryRemove(id, out _);
                 OnStateChanged?.Invoke();
             }
         });
@@ -304,7 +309,7 @@ public class NodeConnectionManager : IHostedService
             var results = shareManager.SearchLocal(req.Query);
             foreach (var res in results)
             {
-                var selfInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort, IsPassive, _localIp, "");
+                var selfInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort, IsPassive, localIp, "");
                 var searchResult = new SearchResult(res, selfInfo);
                 await hub.InvokeAsync("SubmitSearchResult", requesterConnId, searchResult);
             }
@@ -367,13 +372,13 @@ public class NodeConnectionManager : IHostedService
         {
             logger.LogInfo($"[Node] Negotiation requested by {requesterPeerId} (Request: {requestId})");
             
-            var candidates = new List<string> { _localIp };
+            var candidates = new List<string> { localIp };
             var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp");
             
             string effectivePublicIp = publicIp;
-            if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(_upnpExternalIp) && !IsPrivateIp(_upnpExternalIp))
+            if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(upnpExternalIp) && !IsPrivateIp(upnpExternalIp))
             {
-                effectivePublicIp = _upnpExternalIp;
+                effectivePublicIp = upnpExternalIp;
             }
 
             if (!candidates.Contains(effectivePublicIp)) candidates.Add(effectivePublicIp);
@@ -420,7 +425,7 @@ public class NodeConnectionManager : IHostedService
         }
 
         // 1. Deduplicate inflight requests
-        if (_pendingFileListRequests.TryGetValue(targetPeerId, out var existingTask))
+        if (pendingFileListRequests.TryGetValue(targetPeerId, out var existingTask))
         {
             logger.LogInfo($"[Node] Awaiting existing filelist request for {targetPeerId}...");
             await existingTask;
@@ -428,16 +433,16 @@ public class NodeConnectionManager : IHostedService
         }
 
         var tcs = new TaskCompletionSource();
-        if (!_pendingFileListRequests.TryAdd(targetPeerId, tcs.Task))
+        if (!pendingFileListRequests.TryAdd(targetPeerId, tcs.Task))
         {
-            await _pendingFileListRequests[targetPeerId];
+            await pendingFileListRequests[targetPeerId];
             return;
         }
 
         try
         {
             // 2. Optional: Show Cached data immediately for UI responsiveness
-            if (_fileListCache.TryGetValue(targetPeerId, out var cachedJson))
+            if (fileListCache.TryGetValue(targetPeerId, out var cachedJson))
             {
                 logger.LogInfo($"[Node] Providing cached filelist for {targetPeerId} while revalidating...");
                 OnFilelistReceived?.Invoke(targetPeerId, cachedJson);
@@ -572,7 +577,7 @@ public class NodeConnectionManager : IHostedService
                 }
                 
                 string json = System.Text.Encoding.UTF8.GetString(dataBuffer);
-                _fileListCache[targetPeerId] = json;
+                fileListCache[targetPeerId] = json;
                 OnFilelistReceived?.Invoke(targetPeerId, json);
                 tcs.SetResult();
             }
@@ -584,7 +589,7 @@ public class NodeConnectionManager : IHostedService
         }
         finally
         {
-            _pendingFileListRequests.TryRemove(targetPeerId, out _);
+            pendingFileListRequests.TryRemove(targetPeerId, out _);
         }
     }
 
@@ -602,13 +607,13 @@ public class NodeConnectionManager : IHostedService
         {
             var publicIp = await hub.InvokeAsync<string>("GetMyPublicIp");
             string effectivePublicIp = publicIp;
-            if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(_upnpExternalIp) && !IsPrivateIp(_upnpExternalIp))
+            if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(upnpExternalIp) && !IsPrivateIp(upnpExternalIp))
             {
-                effectivePublicIp = _upnpExternalIp;
+                effectivePublicIp = upnpExternalIp;
             }
 
-            string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? _localIp : effectivePublicIp);
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, _localIp, effectivePublicIp);
+            string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? localIp : effectivePublicIp);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, localIp, effectivePublicIp);
             await hub.InvokeAsync("UpdateNodeParams", peerInfo);
         }
     }
@@ -657,7 +662,7 @@ public class NodeConnectionManager : IHostedService
             else if (mode == ConnectivityMode.ForceActive) IsPassive = false;
             else 
             {
-                bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", _localIp, transferServer.ListenPort);
+                bool isActive = await hub.InvokeAsync<bool>("TestConnectivity", localIp, transferServer.ListenPort);
                 IsPassive = !isActive;
             }
             await BroadcastUpdate();
@@ -703,8 +708,8 @@ public class NodeConnectionManager : IHostedService
                 NatUtility.DeviceFound -= DeviceFoundHandler;
 
                 var ip = await device.GetExternalIPAsync();
-                _upnpExternalIp = ip.ToString();
-                logger.LogInfo($"[UPnP] Router detected! External IP: {_upnpExternalIp}");
+                upnpExternalIp = ip.ToString();
+                logger.LogInfo($"[UPnP] Router detected! External IP: {upnpExternalIp}");
 
                 await device.CreatePortMapAsync(new Mapping(Protocol.Tcp, transferServer.ListenPort, transferServer.ListenPort, 0, "Transfarr P2P"));
                 logger.LogInfo($"[UPnP] Port {transferServer.ListenPort} successfully mapped on router via Mono.Nat.");

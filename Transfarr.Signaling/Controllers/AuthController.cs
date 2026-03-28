@@ -8,12 +8,16 @@ using Transfarr.Signaling.Data;
 using BCrypt.Net;
 using Transfarr.Signaling.Services;
 
+using Transfarr.Signaling.Options;
+using Microsoft.Extensions.Options;
+
 namespace Transfarr.Signaling.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(UserDatabase db, IConfiguration config, NetworkStateService networkState) : ControllerBase
+public class AuthController(UserDatabase db, IOptions<HubOptions> options, NetworkStateService networkState) : ControllerBase
 {
+    private readonly HubOptions options = options.Value;
     [HttpPost("register")]
     public IActionResult Register([FromBody] LoginRequest request)
     {
@@ -62,7 +66,7 @@ public class AuthController(UserDatabase db, IConfiguration config, NetworkState
 
     private string GenerateJwtToken(string username, string role)
     {
-        var jwtKey = config["Jwt:Key"] ?? "TransfarrSuperSecretKey1234567890123456";
+        var jwtKey = options.Jwt.Key;
         var key = Encoding.ASCII.GetBytes(jwtKey);
         
         var tokenHandler = new JwtSecurityTokenHandler();

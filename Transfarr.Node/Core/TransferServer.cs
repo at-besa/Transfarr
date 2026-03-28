@@ -11,10 +11,14 @@ using Transfarr.Shared.Models;
 using System.Collections.Generic;
 using System.Linq;
 
+using Microsoft.Extensions.Options;
+using Transfarr.Node.Options;
+
 namespace Transfarr.Node.Core;
 
-public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger)
+public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options)
 {
+    private readonly NodeOptions options = options.Value;
     private TcpListener? listener;
     private readonly CancellationTokenSource cts = new();
     
@@ -27,7 +31,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
     public void Start()
     {
         var portStr = db.GetSetting("P2PPort");
-        int targetPort = 5151; // Changed default from 0 to 5151
+        int targetPort = options.Network.TransferPort;
         if (int.TryParse(portStr, out var p)) targetPort = p;
 
         try 

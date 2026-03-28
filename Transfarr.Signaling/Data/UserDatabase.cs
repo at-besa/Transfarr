@@ -2,25 +2,30 @@ using System.Collections.Concurrent;
 using Microsoft.Data.Sqlite;
 using Transfarr.Shared.Models;
 
+using Microsoft.Extensions.Options;
+using Transfarr.Signaling.Options;
+
 namespace Transfarr.Signaling.Data;
 
 public class UserDatabase
 {
-    private readonly string _connectionString;
-    private readonly object _dbLock = new();
+    private readonly string connectionString;
+    private readonly object dbLock = new();
+    private readonly HubOptions options;
 
-    public UserDatabase(IConfiguration config)
+    public UserDatabase(IOptions<HubOptions> options)
     {
-        string dbPath = config.GetValue<string>("Database:Path") ?? "users.db";
-        _connectionString = $"Data Source={dbPath}";
+        this.options = options.Value;
+        string dbPath = this.options.Database.Path;
+        connectionString = $"Data Source={dbPath}";
         InitializeDatabase();
-        SeedAdminUser(config);
+        SeedAdminUser();
     }
 
-    private void SeedAdminUser(IConfiguration config)
+    private void SeedAdminUser()
     {
-        var adminUser = config["AdminUser:Username"];
-        var adminPass = config["AdminUser:Password"];
+        var adminUser = options.AdminUser.Username;
+        var adminPass = options.AdminUser.Password;
         
         if (!string.IsNullOrEmpty(adminUser) && !string.IsNullOrEmpty(adminPass))
         {
@@ -34,9 +39,9 @@ public class UserDatabase
 
     private void InitializeDatabase()
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
-            using var connection = new SqliteConnection(_connectionString);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
             
             var command = connection.CreateCommand();
@@ -68,9 +73,9 @@ public class UserDatabase
 
     public bool SetSuspension(string username, bool suspended)
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
-            using var connection = new SqliteConnection(_connectionString);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "UPDATE Users SET IsSuspended = @s WHERE Username = @u";
@@ -82,9 +87,9 @@ public class UserDatabase
 
     public bool IsSuspended(string username)
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
-            using var connection = new SqliteConnection(_connectionString);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT IsSuspended FROM Users WHERE Username = @u";
@@ -96,11 +101,11 @@ public class UserDatabase
 
     public bool CreateUser(string username, string passwordHash, string role = "User")
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
             try 
             {
-                using var connection = new SqliteConnection(_connectionString);
+                using var connection = new SqliteConnection(connectionString);
                 connection.Open();
                 var cmd = connection.CreateCommand();
                 cmd.CommandText = "INSERT INTO Users (Username, PasswordHash, Role) VALUES (@u, @p, @r)";
@@ -115,9 +120,9 @@ public class UserDatabase
 
     public (string Hash, string Role, int Reputation, bool IsSuspended)? GetUser(string username)
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
-            using var connection = new SqliteConnection(_connectionString);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
             var cmd = connection.CreateCommand();
             cmd.CommandText = "SELECT PasswordHash, Role, Reputation, IsSuspended FROM Users WHERE Username = @u";
@@ -133,10 +138,10 @@ public class UserDatabase
 
     public List<string> GetAllUsernames()
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
             var list = new List<string>();
-            using var connection = new SqliteConnection(_connectionString);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
             using var command = new SqliteCommand("SELECT Username FROM Users", connection);
             using var reader = command.ExecuteReader();
@@ -147,9 +152,9 @@ public class UserDatabase
 
     public void UpdateReputation(string username, int delta)
     {
-        lock (_dbLock)
+        lock (dbLock)
         {
-            using var connection = new SqliteConnection(_connectionString);
+            using var connection = new SqliteConnection(connectionString);
             connection.Open();
             using var command = new SqliteCommand("UPDATE Users SET Reputation = Reputation + @delta WHERE Username = @u", connection);
             command.Parameters.AddWithValue("@delta", delta);

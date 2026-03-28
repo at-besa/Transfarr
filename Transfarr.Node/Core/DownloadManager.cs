@@ -8,10 +8,14 @@ using System.Text;
 using System.Threading.Tasks;
 using Transfarr.Shared.Models;
 
+using Microsoft.Extensions.Options;
+using Transfarr.Node.Options;
+
 namespace Transfarr.Node.Core;
 
-public class DownloadManager(ShareDatabase db, SystemLogger logger)
+public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options)
 {
+    private readonly NodeOptions options = options.Value;
     private readonly ConcurrentDictionary<string, DownloadItem> items = new();
     private readonly ConcurrentDictionary<string, DownloadItem> activeDownloads = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<TcpClient>> pendingReverseConnections = new();
@@ -36,12 +40,14 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger)
     public void Initialize()
     {
         var savedPath = db.GetSetting("DownloadsFolder");
-        if (!string.IsNullOrEmpty(savedPath))
+        if (string.IsNullOrEmpty(savedPath))
         {
-            DownloadsFolder = savedPath;
-            IsConfigured = true;
-            Directory.CreateDirectory(DownloadsFolder);
+            savedPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, options.Storage.DefaultDownloadsFolder);
         }
+
+        DownloadsFolder = savedPath;
+        IsConfigured = true;
+        Directory.CreateDirectory(DownloadsFolder);
 
         // Load Persistent Queue
         var savedItems = db.GetDownloadQueue();

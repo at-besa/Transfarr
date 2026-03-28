@@ -8,13 +8,13 @@
         <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin:0;">System Logs</h2>
         
         <div style="display:flex; gap:8px; font-size:12px;">
-            <button class="btn-clean" style="padding:6px 12px; background-color:@(_showInfo ? "var(--accent-blue)" : "var(--bg-app)"); color:white;" @onclick="() => _showInfo = !_showInfo">
+            <button class="btn-clean" style="padding:6px 12px; background-color:@(showInfo ? "var(--accent-blue)" : "var(--bg-app)"); color:white;" @onclick="() => showInfo = !showInfo">
                 Info (@Connection.SystemLogs.Count(x => x.Level == LogLevel.Info))
             </button>
-            <button class="btn-clean" style="padding:6px 12px; background-color:@(_showWarn ? "#d48806" : "var(--bg-app)"); color:white;" @onclick="() => _showWarn = !_showWarn">
+            <button class="btn-clean" style="padding:6px 12px; background-color:@(showWarn ? "#d48806" : "var(--bg-app)"); color:white;" @onclick="() => showWarn = !showWarn">
                 Warnings (@Connection.SystemLogs.Count(x => x.Level == LogLevel.Warning))
             </button>
-            <button class="btn-clean" style="padding:6px 12px; background-color:@(_showErr ? "#e03131" : "var(--bg-app)"); color:white;" @onclick="() => _showErr = !_showErr">
+            <button class="btn-clean" style="padding:6px 12px; background-color:@(showErr ? "#e03131" : "var(--bg-app)"); color:white;" @onclick="() => showErr = !showErr">
                 Errors (@Connection.SystemLogs.Count(x => x.Level == LogLevel.Error))
             </button>
         </div>
@@ -42,9 +42,9 @@
 </div>
 
 @code {
-    private bool _showInfo = true;
-    private bool _showWarn = true;
-    private bool _showErr = true;
+    private bool showInfo = true;
+    private bool showWarn = true;
+    private bool showErr = true;
     
     private IEnumerable<LogEntry> FilteredLogs
     {
@@ -53,9 +53,9 @@
             lock (Connection.SystemLogs)
             {
                 return Connection.SystemLogs.Where(l => 
-                    (l.Level == LogLevel.Info && _showInfo) ||
-                    (l.Level == LogLevel.Warning && _showWarn) ||
-                    (l.Level == LogLevel.Error && _showErr)
+                    (l.Level == LogLevel.Info && showInfo) ||
+                    (l.Level == LogLevel.Warning && showWarn) ||
+                    (l.Level == LogLevel.Error && showErr)
                 ).ToList();
             }
         }

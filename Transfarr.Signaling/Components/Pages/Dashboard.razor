@@ -1,6 +1,8 @@
 @page "/"
 @using Transfarr.Signaling.Services
 @inject NetworkStateService NetworkState
+@inject HubAuthService Auth
+@inject NavigationManager Nav
 @implements IDisposable
 
 <PageTitle>Dashboard - Transfarr Hub</PageTitle>
@@ -30,7 +32,7 @@
         </div>
         <div class="stat-card">
             <div class="stat-label">System Uptime</div>
-            <div class="stat-value">@_uptime</div>
+            <div class="stat-value">@uptime</div>
             <div class="stat-sub">Started @NetworkState.StartupTime.ToLocalTime().ToString("MMM dd, HH:mm")</div>
         </div>
     </div>
@@ -105,15 +107,21 @@
 </div>
 
 @code {
-    private System.Threading.Timer? _timer;
-    private string _uptime = "00:00:00";
+    private System.Threading.Timer? timer;
+    private string uptime = "00:00:00";
 
     protected override void OnInitialized()
     {
-        _timer = new System.Threading.Timer(_ => 
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+
+        timer = new System.Threading.Timer(_ => 
         {
             var span = DateTime.UtcNow - NetworkState.StartupTime;
-            _uptime = $"{(int)span.TotalHours:D2}:{span.Minutes:D2}:{span.Seconds:D2}";
+            uptime = $"{(int)span.TotalHours:D2}:{span.Minutes:D2}:{span.Seconds:D2}";
             InvokeAsync(StateHasChanged);
         }, null, 0, 1000);
     }
@@ -141,5 +149,5 @@
         return FormatSize(NetworkState.GetTotalSharedBytes() / count);
     }
 
-    public void Dispose() => _timer?.Dispose();
+    public void Dispose() => timer?.Dispose();
 }

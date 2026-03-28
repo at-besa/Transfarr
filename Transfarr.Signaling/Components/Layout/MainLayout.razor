@@ -30,9 +30,17 @@
     <div style="flex: 1; display: flex; flex-direction: column; overflow: hidden; background-color: var(--bg-app);">
         <div class="top-bar">
             <div style="font-weight: 600; color: var(--text-highlight);">ADMIN CONSOLE</div>
-            <div class="d-flex align-items-center gap-3">
-                <span class="badge-clean badge-blue">CONNECTED</span>
-                <div style="width: 32px; height: 32px; border-radius: 50%; background: #444; display: flex; align-items: center; justify-content: center; font-size: 14px;">A</div>
+            <div style="display: flex; align-items: center; gap: 20px;">
+                @if (Auth.IsAuthenticated)
+                {
+                    <div style="display: flex; align-items: center; gap: 12px; font-size: 13px;">
+                        <span style="color: var(--text-muted);">Welcome, <strong style="color: var(--text-highlight);">@Auth.Username</strong></span>
+                        <button class="btn-logout" @onclick="HandleLogout">LOGOUT</button>
+                    </div>
+                }
+                <div style="width: 32px; height: 32px; border-radius: 50%; background: var(--accent-blue); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; color: white;">
+                    @(Auth.Username?.ToUpper()[0].ToString() ?? "A")
+                </div>
             </div>
         </div>
 
@@ -63,4 +71,33 @@
         background-color: var(--bg-active);
         border-left: 3px solid var(--accent-blue);
     }
+
+    .btn-logout {
+        background: rgba(241, 76, 76, 0.1);
+        border: 1px solid rgba(241, 76, 76, 0.2);
+        color: var(--accent-red);
+        cursor: pointer;
+        padding: 4px 12px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        transition: all 0.2s;
+        text-transform: uppercase;
+    }
+    .btn-logout:hover {
+        background: var(--accent-red);
+        color: white;
+        border-color: var(--accent-red);
+    }
 </style>
+
+@inject HubAuthService Auth
+@inject NavigationManager Nav
+
+@code {
+    private void HandleLogout()
+    {
+        Auth.Logout();
+        Nav.NavigateTo("/login");
+    }
+}

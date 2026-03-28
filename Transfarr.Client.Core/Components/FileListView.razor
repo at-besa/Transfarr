@@ -26,30 +26,30 @@
 
     <!-- Content -->
     <div style="flex:1; overflow-y:auto; padding:8px 0; background-color:var(--bg-app);">
-        @if (_isLoading)
+        @if (isLoading)
         {
             <div style="padding:40px; text-align:center; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:16px;">
                 <div class="spinner" style="width:24px; height:24px; border:2px solid var(--accent-blue); border-top-color:transparent; border-radius:50%; animation: spin 0.8s linear infinite;"></div>
                 <div style="font-size:14px; color:var(--text-highlight);">Fetching file list from @Peer.Name...</div>
-                @if (!string.IsNullOrEmpty(_statusMessage))
+                @if (!string.IsNullOrEmpty(statusMessage))
                 {
-                    <div style="font-size:12px; color:var(--accent-blue); opacity:0.8; font-style:italic;">@_statusMessage</div>
+                    <div style="font-size:12px; color:var(--accent-blue); opacity:0.8; font-style:italic;">@statusMessage</div>
                 }
             </div>
         }
-        else if (_error != null)
+        else if (error != null)
         {
             <div style="padding:24px; margin:24px; background-color:rgba(255,77,77,0.05); border:1px solid rgba(255,77,77,0.2); color:#ff7b7b; border-radius:4px; text-align:center;">
                 <div style="font-size:32px; margin-bottom:12px;">⚠️</div>
                 <div style="font-size:14px; font-weight:600; margin-bottom:8px;">Request Failed</div>
-                <div style="font-size:12px; margin-bottom:20px; line-height:1.5;">@_error</div>
+                <div style="font-size:12px; margin-bottom:20px; line-height:1.5;">@error</div>
                 <button class="btn-clean" style="background:var(--accent-blue); color:white; padding:8px 24px; font-size:13px;" @onclick="ManualRetry">Try Again</button>
             </div>
         }
-        else if (_fileList != null)
+        else if (fileList != null)
         {
             <div style="padding:0 8px;">
-                @foreach (var item in _fileList.Items)
+                @foreach (var item in fileList.Items)
                 {
                     @RenderNode(item)
                 }
@@ -61,13 +61,13 @@
 @code {
     [Parameter] public PeerInfo Peer { get; set; } = default!;
 
-    private bool _isLoading = true;
-    private string? _error;
-    private string? _statusMessage;
-    private int _retryCount = 0;
-    private FileList? _fileList;
-    private HashSet<FileListItem> _expandedNodes = new();
-    private HashSet<string> _localTths = new(StringComparer.OrdinalIgnoreCase);
+    private bool isLoading = true;
+    private string? error;
+    private string? statusMessage;
+    private int retryCount = 0;
+    private FileList? fileList;
+    private HashSet<FileListItem> expandedNodes = new();
+    private HashSet<string> localTths = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -80,24 +80,24 @@
     
     private async Task LoadLocalTths()
     {
-        _localTths = await Connection.GetLocalTths();
+        localTths = await Connection.GetLocalTths();
     }
 
     private async Task Refresh()
     {
-        _retryCount = 0;
-        _isLoading = true;
-        _error = null;
-        _statusMessage = null;
-        _fileList = null;
-        _expandedNodes.Clear();
+        retryCount = 0;
+        isLoading = true;
+        error = null;
+        statusMessage = null;
+        fileList = null;
+        expandedNodes.Clear();
         await LoadLocalTths();
         await LoadFileList();
     }
 
     private async Task ManualRetry()
     {
-        _retryCount = 0;
+        retryCount = 0;
         await Refresh();
     }
 
@@ -113,8 +113,8 @@
         }
         catch (Exception ex)
         {
-            _isLoading = false;
-            _error = "Failed to request filelist: " + ex.Message;
+            isLoading = false;
+            error = "Failed to request filelist: " + ex.Message;
         }
     }
 
@@ -127,39 +127,39 @@
             var json = message.Substring("RES_FILELIST|".Length);
             try
             {
-                _fileList = JsonSerializer.Deserialize<FileList>(json);
-                _isLoading = false;
-                _error = null;
-                _statusMessage = null;
+                fileList = JsonSerializer.Deserialize<FileList>(json);
+                isLoading = false;
+                error = null;
+                statusMessage = null;
                 InvokeAsync(StateHasChanged);
             }
             catch (Exception ex)
             {
-                _error = "Failed to parse file list: " + ex.Message;
-                _isLoading = false;
+                error = "Failed to parse file list: " + ex.Message;
+                isLoading = false;
                 InvokeAsync(StateHasChanged);
             }
         }
         else if (message.StartsWith("STATUS_FILELIST|"))
         {
-            _statusMessage = message.Substring("STATUS_FILELIST|".Length);
+            statusMessage = message.Substring("STATUS_FILELIST|".Length);
             InvokeAsync(StateHasChanged);
         }
         else if (message.StartsWith("ERROR_FILELIST|"))
         {
-            var error = message.Substring("ERROR_FILELIST|".Length);
+            var errorContent = message.Substring("ERROR_FILELIST|".Length);
             
-            if (_retryCount < 2)
+            if (retryCount < 2)
             {
-                _retryCount++;
-                _statusMessage = $"Retrying ({_retryCount}/2)...";
+                retryCount++;
+                statusMessage = $"Retrying ({retryCount}/2)...";
                 _ = Task.Delay(2000).ContinueWith(_ => LoadFileList());
             }
             else
             {
-                _error = error;
-                _isLoading = false;
-                _statusMessage = null;
+                error = errorContent;
+                isLoading = false;
+                statusMessage = null;
                 InvokeAsync(StateHasChanged);
             }
         }
@@ -167,19 +167,19 @@
 
     private void ToggleFolder(FileListItem item)
     {
-        if (_expandedNodes.Contains(item)) _expandedNodes.Remove(item);
-        else _expandedNodes.Add(item);
+        if (expandedNodes.Contains(item)) expandedNodes.Remove(item);
+        else expandedNodes.Add(item);
     }
 
     private void ExpandAll()
     {
-        if (_fileList == null) return;
-        foreach (var item in _fileList.Items) Walk(item, i => _expandedNodes.Add(i));
+        if (fileList == null) return;
+        foreach (var item in fileList.Items) Walk(item, i => expandedNodes.Add(i));
     }
 
     private void CollapseAll()
     {
-        _expandedNodes.Clear();
+        expandedNodes.Clear();
     }
 
     private void Walk(FileListItem item, Action<FileListItem> action)
@@ -228,7 +228,7 @@
 
     private RenderFragment<FileListItem> RenderNode => item => __builder =>
     {
-        var isExpanded = _expandedNodes.Contains(item);
+        var isExpanded = expandedNodes.Contains(item);
         var hasChildren = item.IsDirectory && item.Children != null && item.Children.Any();
 
         <div style="display:flex; flex-direction:column;">
@@ -248,7 +248,7 @@
                 </div>
                 
                 <div style="display:flex; align-items:center; gap:16px;">
-                    @if (!item.IsDirectory && !string.IsNullOrEmpty(item.Tth) && _localTths.Contains(item.Tth))
+                    @if (!item.IsDirectory && !string.IsNullOrEmpty(item.Tth) && localTths.Contains(item.Tth))
                     {
                         <span style="font-size:10px; color:var(--accent-green); background:rgba(64, 192, 87, 0.1); padding:2px 6px; border-radius:10px; font-weight:600; border:1px solid rgba(64, 192, 87, 0.2);">EXISTING</span>
                     }

@@ -5,7 +5,7 @@ namespace Transfarr.Signaling.Services;
 
 public class NetworkStateService : IDisposable
 {
-    private readonly ConcurrentDictionary<string, PeerInfo> _peers = new();
+    private readonly ConcurrentDictionary<string, PeerInfo> peers = new();
     
     public DateTime StartupTime { get; } = DateTime.UtcNow;
     public int PeakUserCount { get; private set; }
@@ -18,34 +18,34 @@ public class NetworkStateService : IDisposable
     public int LoginAttempts { get; private set; }
     public int TotalErrors { get; private set; }
 
-    private readonly System.Timers.Timer _rateTimer;
+    private readonly System.Timers.Timer rateTimer;
 
     public NetworkStateService()
     {
-        _rateTimer = new System.Timers.Timer(1000);
-        _rateTimer.Elapsed += (s, e) => {
+        rateTimer = new System.Timers.Timer(1000);
+        rateTimer.Elapsed += (s, e) => {
             CurrentTransferRateBps = BytesInLastSecond;
             BytesInLastSecond = 0;
         };
-        _rateTimer.Start();
+        rateTimer.Start();
     }
 
-    public IReadOnlyCollection<PeerInfo> ActivePeers => _peers.Values.ToList().AsReadOnly();
+    public IReadOnlyCollection<PeerInfo> ActivePeers => peers.Values.ToList().AsReadOnly();
 
     public void AddOrUpdatePeer(string connectionId, PeerInfo peer)
     {
-        _peers[connectionId] = peer;
+        peers[connectionId] = peer;
         UpdatePeaks();
     }
 
     public void RemovePeer(string connectionId)
     {
-        _peers.TryRemove(connectionId, out _);
+        peers.TryRemove(connectionId, out _);
     }
 
     private void UpdatePeaks()
     {
-        if (_peers.Count > PeakUserCount) PeakUserCount = _peers.Count;
+        if (peers.Count > PeakUserCount) PeakUserCount = peers.Count;
         long total = GetTotalSharedBytes();
         if (total > PeakTotalSharedBytes) PeakTotalSharedBytes = total;
     }
@@ -59,12 +59,12 @@ public class NetworkStateService : IDisposable
     public void RecordLoginAttempt() => LoginAttempts++;
     public void RecordError() => TotalErrors++;
 
-    public long GetTotalSharedBytes() => _peers.Values.Sum(p => p.SharedBytes);
-    public int GetActiveNodeCount() => _peers.Count;
+    public long GetTotalSharedBytes() => peers.Values.Sum(p => p.SharedBytes);
+    public int GetActiveNodeCount() => peers.Count;
 
     public void Dispose()
     {
-        _rateTimer.Stop();
-        _rateTimer.Dispose();
+        rateTimer.Stop();
+        rateTimer.Dispose();
     }
 }

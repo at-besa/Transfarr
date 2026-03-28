@@ -34,7 +34,7 @@
                 <span style="font-size:11px; color:var(--text-muted);">@FormatBytes(peer.SharedBytes)</span>
             </div>
             
-            @if (_openMenuPeerId == peer.PeerId)
+            @if (openMenuPeerId == peer.PeerId)
             {
                 <div style="position:absolute; right:10px; top:100%; margin-top:4px; background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:4px 0; z-index:1000; box-shadow:0 8px 24px rgba(0,0,0,0.6); min-width:180px;" @onclick:stopPropagation>
                     <div style="padding:8px 16px; font-size:11px; color:var(--text-muted); border-bottom:1px solid var(--border-color); margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">
@@ -78,7 +78,7 @@
     [Parameter] public EventCallback<PeerInfo> OnRequestFileList { get; set; }
     [Parameter] public EventCallback<PeerInfo> OnOpenPrivateChat { get; set; }
     
-    private string? _openMenuPeerId;
+    private string? openMenuPeerId;
 
     protected override void OnInitialized()
     {
@@ -94,8 +94,8 @@
     
     private void ToggleMenu(string? peerId)
     {
-        if (_openMenuPeerId == peerId) _openMenuPeerId = null;
-        else _openMenuPeerId = peerId;
+        if (openMenuPeerId == peerId) openMenuPeerId = null;
+        else openMenuPeerId = peerId;
     }
 
     private Task RequestFileList(PeerInfo peer)

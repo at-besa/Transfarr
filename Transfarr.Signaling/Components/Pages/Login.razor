@@ -1,0 +1,127 @@
+@page "/login"
+@layout LoginLayout
+@using Transfarr.Signaling.Services
+@using Transfarr.Signaling.Data
+@inject HubAuthService Auth
+@inject UserDatabase Db
+@inject NavigationManager Nav
+
+<PageTitle>Login - Transfarr Hub</PageTitle>
+
+<div style="height: 100vh; display: flex; align-items: center; justify-content: center; background-color: var(--bg-app); font-family: var(--font-family);">
+    <div class="panel" style="width: 100%; max-width: 400px; padding: 48px; box-shadow: 0 32px 64px rgba(0,0,0,0.5); border: 1px solid var(--border-color); border-radius: 8px;">
+        <div style="text-align: center; margin-bottom: 40px;">
+            <div style="width: 48px; height: 48px; background: var(--accent-blue); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; color: white; margin-bottom: 16px; font-size: 20px;">T</div>
+            <h2 style="font-size: 24px; font-weight: 200; color: var(--text-highlight); margin: 0;">Signaling Hub</h2>
+            <p style="color: var(--text-muted); font-size: 13px; margin-top: 12px; letter-spacing: 0.5px;">ADMINISTRATIVE CONSOLE</p>
+        </div>
+
+        <div style="margin-bottom: 24px;">
+            <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">Username</label>
+            <input @bind="username" @bind:event="oninput" @onkeyup="HandleKeyUp" class="input-clean" style="width: 100%;" placeholder="e.g. admin" />
+        </div>
+
+        <div style="margin-bottom: 32px;">
+            <label style="display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; letter-spacing: 0.5px;">Password</label>
+            <input type="password" @bind="password" @bind:event="oninput" @onkeyup="HandleKeyUp" class="input-clean" style="width: 100%;" placeholder="••••••••" />
+        </div>
+
+        @if (!string.IsNullOrEmpty(error))
+        {
+            <div style="margin-bottom: 24px; padding: 12px; background: rgba(241, 76, 76, 0.1); border-radius: 4px; color: var(--accent-red); font-size: 12px; text-align: center; border: 1px solid rgba(241, 76, 76, 0.2);">
+                @error
+            </div>
+        }
+
+        <button @onclick="PerformLogin" class="btn-clean" style="width: 100%; padding: 14px; background: var(--accent-blue); color: white; font-weight: 600; border-radius: 4px;" disabled="@isProcessing">
+            @(isProcessing ? "AUTHENTICATING..." : "LOG IN")
+        </button>
+        
+        <div style="margin-top: 32px; text-align: center;">
+            <span style="color: var(--text-muted); font-size: 11px; opacity: 0.5;">Transfarr Hub v1.0.0-alpha</span>
+        </div>
+    </div>
+</div>
+
+<style>
+    .input-clean {
+        background: var(--bg-input);
+        border: 1px solid var(--border-color);
+        border-radius: 4px;
+        padding: 12px;
+        color: var(--text-highlight);
+        outline: none;
+        transition: all 0.2s;
+        font-size: 14px;
+    }
+    .input-clean:focus {
+        border-color: var(--accent-blue);
+        background: #2b2b2b;
+    }
+    .btn-clean {
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-size: 12px;
+    }
+    .btn-clean:hover:not(:disabled) {
+        background: var(--accent-blue-hover) !important;
+        transform: translateY(-1px);
+    }
+    .btn-clean:active:not(:disabled) {
+        transform: translateY(0);
+    }
+</style>
+
+@code {
+    private string username = "";
+    private string password = "";
+    private string error = "";
+    private bool isProcessing = false;
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await PerformLogin();
+    }
+
+    private async Task PerformLogin()
+    {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password)) return;
+
+        isProcessing = true;
+        error = "";
+        
+        try 
+        {
+            await Task.Delay(500); // Artificial delay for premium feel
+            var user = Db.GetUser(username);
+            
+            if (user != null && BCrypt.Net.BCrypt.Verify(password, user.Value.Hash))
+            {
+                if (user.Value.Role != "Admin")
+                {
+                    error = "Insufficient permissions. Admin role required.";
+                }
+                else
+                {
+                    Auth.Login(username, user.Value.Role);
+                    Nav.NavigateTo("/");
+                }
+            }
+            else
+            {
+                error = "Invalid identity or credentials.";
+            }
+        }
+        catch (Exception ex)
+        {
+            error = "Authentication failed: " + ex.Message;
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+}

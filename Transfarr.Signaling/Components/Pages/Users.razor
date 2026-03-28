@@ -6,6 +6,8 @@
 @inject UserDatabase Db
 @inject IHubContext<SignalingHub> HubContext
 @inject NetworkStateService NetworkState
+@inject HubAuthService Auth
+@inject NavigationManager Nav
 
 <PageTitle>User Management - Transfarr Hub</PageTitle>
 
@@ -17,16 +19,16 @@
         </div>
         
         <div class="panel" style="padding: 16px; display: flex; gap: 12px; align-items: center;">
-            <input @bind="_newUsername" @bind:event="oninput" placeholder="Username" class="input-clean" style="width: 140px;" />
-            <input @bind="_newPassword" @bind:event="oninput" type="password" placeholder="Password" class="input-clean" style="width: 140px;" />
+            <input @bind="newUsername" @bind:event="oninput" placeholder="Username" class="input-clean" style="width: 140px;" />
+            <input @bind="newPassword" @bind:event="oninput" type="password" placeholder="Password" class="input-clean" style="width: 140px;" />
             <button @onclick="CreateUser" class="btn-clean">ADD USER</button>
         </div>
     </div>
 
-    @if (!string.IsNullOrEmpty(_message))
+    @if (!string.IsNullOrEmpty(message))
     {
         <div style="margin-bottom: 24px; padding: 12px 20px; background: rgba(14, 99, 156, 0.1); border-left: 4px solid var(--accent-blue); color: var(--text-highlight); font-size: 13px;">
-            @_message
+            @message
         </div>
     }
 
@@ -41,7 +43,7 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach (var username in _users)
+                @foreach (var username in users)
                 {
                     var user = Db.GetUser(username);
                     <tr>
@@ -71,19 +73,25 @@
 </div>
 
 @code {
-    private List<string> _users = new();
-    private string _newUsername = "";
-    private string _newPassword = "";
-    private string _message = "";
+    private List<string> users = new();
+    private string newUsername = "";
+    private string newPassword = "";
+    private string message = "";
 
     protected override void OnInitialized()
     {
+        if (!Auth.IsAuthenticated)
+        {
+            Nav.NavigateTo("/login");
+            return;
+        }
+
         RefreshList();
     }
 
     private void RefreshList()
     {
-        _users = Db.GetAllUsernames();
+        users = Db.GetAllUsernames();
     }
 
     private int GetReputation(string username)
@@ -108,11 +116,11 @@
                 // Note: SignalR doesn't have a direct "DisconnectClient" on IHubContext easily, 
                 // but we can send a message that triggers it, or let the hub filter handle it.
             }
-            _message = $"User {username} suspended and kicked.";
+            message = $"User {username} suspended and kicked.";
         }
         else
         {
-            _message = $"User {username} unsuspended.";
+            message = $"User {username} unsuspended.";
         }
         
         RefreshList();
@@ -120,23 +128,23 @@
 
     private void CreateUser()
     {
-        if (string.IsNullOrWhiteSpace(_newUsername) || string.IsNullOrWhiteSpace(_newPassword))
+        if (string.IsNullOrWhiteSpace(newUsername) || string.IsNullOrWhiteSpace(newPassword))
         {
-            _message = "Username and password required.";
+            message = "Username and password required.";
             return;
         }
 
-        string hash = BCrypt.Net.BCrypt.HashPassword(_newPassword);
-        if (Db.CreateUser(_newUsername, hash))
+        string hash = BCrypt.Net.BCrypt.HashPassword(newPassword);
+        if (Db.CreateUser(newUsername, hash))
         {
-            _message = $"User {_newUsername} successfully provisioned.";
-            _newUsername = "";
-            _newPassword = "";
+            message = $"User {newUsername} successfully provisioned.";
+            newUsername = "";
+            newPassword = "";
             RefreshList();
         }
         else
         {
-            _message = "ERR: Failed to create user identity. Alias may be taken.";
+            message = "ERR: Failed to create user identity. Alias may be taken.";
         }
     }
 }
