@@ -13,17 +13,3 @@ public class NodeOptions
     public StorageOptions Storage { get; set; } = new();
     public NetworkOptions Network { get; set; } = new();
 }
-
-public class StorageOptions
-{
-    public string DatabasePath { get; set; } = "node.db";
-    public string DefaultDownloadsFolder { get; set; } = "Downloads";
-    public int ShareRefreshIntervalMinutes { get; set; } = 5;
-}
-
-public class NetworkOptions
-{
-    public string StunServer { get; set; } = "stun.l.google.com:19302";
-    public int TransferPort { get; set; } = 5133;
-    public bool EnableUPnP { get; set; } = true;
-}
