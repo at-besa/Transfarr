@@ -9,6 +9,8 @@ using System.IO;
 
 using Transfarr.Node.Options;
 using Microsoft.Extensions.Options;
+using Transfarr.Node.Services;
+using Microsoft.AspNetCore.Diagnostics;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +32,28 @@ builder.Services.AddCors(options =>
         .AllowCredentials());
 });
 builder.Services.AddSignalR();
+builder.Services.AddControllers();
+
+// API Documentation & Exception Handling
+builder.Services.AddProblemDetails();
+builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(c =>
+{
+	c.SwaggerDoc("v1", new Microsoft.OpenApi.OpenApiInfo 
+	{ 
+		Title = "Transfarr Node API", 
+		Version = "v1",
+		Description = "Local node API for managing P2P transfers and internal state."
+	});
+
+	var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+	var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+	if (File.Exists(xmlPath))
+	{
+		c.IncludeXmlComments(xmlPath);
+	}
+});
 
 // Register Core Services
 builder.Services.AddSingleton<SystemLogger>();
@@ -42,9 +66,18 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeConnectionMana
 
 var app = builder.Build();
 
+app.UseExceptionHandler(); // Uses Problem Details automatically
+app.UseStatusCodePages(); // For static status code responses
+
 if (app.Environment.IsDevelopment())
 {
     app.UseWebAssemblyDebugging();
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Transfarr Node API v1");
+        c.RoutePrefix = "swagger";
+    });
 }
 
 app.UseCors("CorsPolicy");
@@ -115,5 +148,6 @@ ts.OnUploadsChanged += (uploads) => {
 
 
 
+app.MapControllers();
 app.MapFallbackToFile("index.html");
 app.Run();
