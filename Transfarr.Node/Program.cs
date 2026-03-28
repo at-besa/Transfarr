@@ -9,6 +9,7 @@ using System.IO;
 
 using Transfarr.Node.Options;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using Transfarr.Node.Services;
 using Microsoft.AspNetCore.Diagnostics;
 
@@ -53,6 +54,8 @@ builder.Services.AddSwaggerGen(c =>
 	{
 		c.IncludeXmlComments(xmlPath);
 	}
+
+	c.AddSignalRSwaggerGen();
 });
 
 // Register Core Services

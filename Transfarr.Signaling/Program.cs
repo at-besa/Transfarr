@@ -5,6 +5,7 @@ using Transfarr.Signaling.Options;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.DependencyInjection;
 using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -59,6 +60,8 @@ builder.Services.AddSwaggerGen(c =>
 	{
 		c.IncludeXmlComments(xmlPath);
 	}
+
+	c.AddSignalRSwaggerGen();
 });
 
 builder.Services.AddRazorComponents()

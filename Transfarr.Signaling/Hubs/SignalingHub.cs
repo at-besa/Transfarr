@@ -4,9 +4,12 @@ using Transfarr.Signaling.Data;
 using Transfarr.Signaling.Services;
 using Transfarr.Shared.Models;
 
+using SignalRSwaggerGen.Attributes;
+
 namespace Transfarr.Signaling.Hubs;
 
 [Authorize]
+[SignalRHub]
 public class SignalingHub(NetworkStateService networkState, UserDatabase db) : Hub
 {
 
@@ -21,6 +24,12 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         await base.OnDisconnectedAsync(exception);
     }
 
+    /// <summary>
+    /// Joins the signaling network.
+    /// </summary>
+    /// <param name="peerId">Unique identifier of the peer.</param>
+    /// <param name="name">Display name of the node.</param>
+    /// <param name="sharedBytes">Total bytes shared by this node.</param>
     public async Task Join(string peerId, string name, long sharedBytes = 0)
     {
         var peer = new PeerInfo(Context.ConnectionId, peerId, name, sharedBytes);
@@ -30,6 +39,10 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         await Clients.Others.SendAsync("PeerJoined", peer);
     }
 
+    /// <summary>
+    /// Joins the signaling network specifically as a node with detailed peer information.
+    /// </summary>
+    /// <param name="peer">The peer info object.</param>
     public async Task JoinAsNode(PeerInfo peer)
     {
         string username = Context.User?.Identity?.Name ?? peer.Name;
@@ -65,6 +78,10 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         await Clients.Others.SendAsync("PeerUpdated", actualPeer);
     }
 
+    /// <summary>
+    /// Sends a signaling message (SDP/ICE) to a specific target peer.
+    /// </summary>
+    /// <param name="message">The signal message containing target and payload.</param>
     public async Task SendSignal(SignalMessage message)
     {
         var target = networkState.ActivePeers.FirstOrDefault(p => p.PeerId == message.TargetPeerId);
@@ -74,6 +91,10 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         }
     }
 
+    /// <summary>
+    /// Broadcasts a search request to all connected peers.
+    /// </summary>
+    /// <param name="request">The search criteria.</param>
     public async Task Search(SearchRequest request)
     {
         // Broadcast search to all peers (including self if desired by protocol)
@@ -90,6 +111,11 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
         await Clients.All.SendAsync("ReceivePrivateMessage", targetPeerId, senderPeerId, content);
     }
 
+    /// <summary>
+    /// Sends a global chat message to all connected peers.
+    /// </summary>
+    /// <param name="sender">The name of the sender.</param>
+    /// <param name="message">The chat message content.</param>
     public async Task Chat(string sender, string message)
     {
         await Clients.All.SendAsync("ReceiveChat", sender, message);

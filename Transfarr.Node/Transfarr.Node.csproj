@@ -11,6 +11,7 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.5" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
     <PackageReference Include="Mono.Nat" Version="3.0.1" />
+    <PackageReference Include="SignalRSwaggerGen" Version="4.9.0" />
     <PackageReference Include="Swashbuckle.AspNetCore" Version="10.1.7" />
   </ItemGroup>
 

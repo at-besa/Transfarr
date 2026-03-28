@@ -4,8 +4,11 @@ using System.Threading.Tasks;
 using Transfarr.Node.Core;
 using Transfarr.Shared.Models;
 
+using SignalRSwaggerGen.Attributes;
+
 namespace Transfarr.Node.Hubs;
 
+[SignalRHub]
 public class LocalClientHub(NodeConnectionManager node, DownloadManager downloads, ShareManager shares, ShareDatabase db, TransferServer ts, SystemLogger logger) : Hub
 {
     public override async Task OnConnectedAsync()
@@ -31,6 +34,12 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await base.OnConnectedAsync();
     }
 
+    /// <summary>
+    /// Logs in to a global signaling hub.
+    /// </summary>
+    /// <param name="url">The URL of the hub.</param>
+    /// <param name="username">The username.</param>
+    /// <param name="password">The password.</param>
     public async Task<AuthResponse> Login(string url, string username, string password)
     {
         var result = await node.LoginAsync(url, username, password);
@@ -52,6 +61,10 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.Caller.SendAsync("SelfStatus", selfInfo);
     }
 
+    /// <summary>
+    /// Requests a file list from a remote peer.
+    /// </summary>
+    /// <param name="targetPeerId">The peer ID to request from.</param>
     public async Task RequestRemoteFileList(string targetPeerId)
     {
         try 
@@ -64,6 +77,10 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         }
     }
 
+    /// <summary>
+    /// Performs a global search for files.
+    /// </summary>
+    /// <param name="query">The search term.</param>
     public async Task PerformSearch(string query)
     {
         await node.PerformGlobalSearch(query);
@@ -83,6 +100,13 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
 
     public void RemoveFromDownload(string itemId) => downloads.RemoveFromQueue(itemId);
 
+    /// <summary>
+    /// Adds a file to the internal download queue.
+    /// </summary>
+    /// <param name="peerId">The owner peer ID.</param>
+    /// <param name="filename">The filename.</param>
+    /// <param name="size">The size in bytes.</param>
+    /// <param name="tth">The TTH root hash.</param>
     public async Task AddToDownloadQueue(string peerId, string filename, long size, string tth)
     {
         var peer = node.OnlinePeers.FirstOrDefault(p => p.PeerId == peerId);
@@ -167,6 +191,11 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
 
     public List<string> GetLocalTths() => shares.GetLocalFileList().Items.SelectMany(i => GetAllTths(i)).Distinct().ToList();
 
+    /// <summary>
+    /// Adds a locally shared directory.
+    /// </summary>
+    /// <param name="virtualName">The display name in the network.</param>
+    /// <param name="path">The physical local OS path.</param>
     public async Task AddSharedDirectory(string virtualName, string path)
     {
         shares.AddSharedDirectory(virtualName, path);
