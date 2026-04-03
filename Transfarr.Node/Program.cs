@@ -62,6 +62,7 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddSingleton<SystemLogger>();
 builder.Services.AddSingleton<ShareDatabase>();
 builder.Services.AddSingleton<ShareManager>();
+builder.Services.AddSingleton<CryptoManager>();
 builder.Services.AddSingleton<TransferServer>();
 builder.Services.AddSingleton<DownloadManager>();
 builder.Services.AddSingleton<NodeConnectionManager>();
@@ -95,6 +96,7 @@ var dl = app.Services.GetRequiredService<DownloadManager>();
 var sm = app.Services.GetRequiredService<ShareManager>();
 var logger = app.Services.GetRequiredService<SystemLogger>();
 var ts = app.Services.GetRequiredService<TransferServer>();
+var crypto = app.Services.GetRequiredService<CryptoManager>();
 
 sm.Initialize();
 dl.Initialize();
@@ -105,7 +107,7 @@ node.OnStateChanged += () => {
     hubContext.Clients.All.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
     hubContext.Clients.All.SendAsync("ConfigurationDefaults", nodeOptions.DefaultHubUrls, nodeOptions.DefaultNodeName);
     
-    var self = new PeerInfo("", node.PeerId, node.NodeName, sm.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
+    var self = new PeerInfo("", node.PeerId, node.NodeName, sm.TotalSharedBytes, "127.0.0.1", ts.ListenPort, false, "", "", crypto.CertificateThumbprint);
     hubContext.Clients.All.SendAsync("SelfStatus", self);
 };
 
@@ -136,7 +138,7 @@ dl.OnQueueChanged += () => {
 sm.OnHashProgress += (state) => {
     hubContext.Clients.All.SendAsync("HashProgressUpdate", state);
     if (!state.IsHashing) {
-        var self = new PeerInfo("", node.PeerId, node.NodeName, sm.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
+        var self = new PeerInfo("", node.PeerId, node.NodeName, sm.TotalSharedBytes, "127.0.0.1", ts.ListenPort, false, "", "", crypto.CertificateThumbprint);
         hubContext.Clients.All.SendAsync("SelfStatus", self);
     }
 };

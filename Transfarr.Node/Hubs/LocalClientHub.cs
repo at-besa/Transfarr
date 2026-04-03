@@ -9,7 +9,7 @@ using SignalRSwaggerGen.Attributes;
 namespace Transfarr.Node.Hubs;
 
 [SignalRHub]
-public class LocalClientHub(NodeConnectionManager node, DownloadManager downloads, ShareManager shares, ShareDatabase db, TransferServer ts, SystemLogger logger) : Hub
+public class LocalClientHub(NodeConnectionManager node, DownloadManager downloads, ShareManager shares, ShareDatabase db, TransferServer ts, SystemLogger logger, CryptoManager crypto) : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -22,7 +22,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         }
 
         // Send Current Node's Self Info (Extension 10)
-        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
+        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", ts.ListenPort, false, "", "", crypto.CertificateThumbprint);
         await Clients.Caller.SendAsync("SelfStatus", selfInfo);
 
         await Clients.Caller.SendAsync("StateUpdate", node.OnlinePeers);
@@ -57,7 +57,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.All.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
         
         // Update self status after connecting
-        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", ts.ListenPort);
+        var selfInfo = new PeerInfo(Context.ConnectionId ?? "", node.PeerId, node.NodeName, shares.TotalSharedBytes, "127.0.0.1", ts.ListenPort, false, "", "", crypto.CertificateThumbprint);
         await Clients.Caller.SendAsync("SelfStatus", selfInfo);
     }
 

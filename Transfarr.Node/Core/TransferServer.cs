@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Net.Security;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +17,7 @@ using Transfarr.Node.Options;
 
 namespace Transfarr.Node.Core;
 
-public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options)
+public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options, CryptoManager crypto)
 {
     private readonly NodeOptions options = options.Value;
     private TcpListener? listener;
@@ -79,9 +80,23 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
 
     private async Task HandleClientAsync(TcpClient client, CancellationToken token)
     {
-        var stream = client.GetStream();
+        Stream stream = client.GetStream();
         try
         {
+            var remoteEp = client.Client.RemoteEndPoint as IPEndPoint;
+            if (remoteEp != null && !CryptoManager.IsPrivateOrLocalIp(remoteEp.Address))
+            {
+                logger.LogInfo($"[TransferServer] Public connection from {remoteEp.Address}. Enforcing E2EE (TLS)...");
+                var sslStream = new SslStream(stream, false);
+                await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions {
+                    ServerCertificate = crypto.NodeCertificate,
+                    ClientCertificateRequired = false,
+                    EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                    CertificateRevocationCheckMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck
+                }, token);
+                stream = sslStream;
+            }
+
             using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
             var requestLine = await reader.ReadLineAsync(token);
             if (string.IsNullOrEmpty(requestLine)) 
@@ -221,8 +236,23 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
             logger.LogInfo($"[TransferServer] Handling pre-connected uploader client ({ip}) for {fileHash}");
             using (client)
             {
-                using var stream = client.GetStream();
-                using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+                Stream stream = client.GetStream();
+                
+                if (IPAddress.TryParse(ip, out var remoteAddr) && !CryptoManager.IsPrivateOrLocalIp(remoteAddr))
+                {
+                    logger.LogInfo($"[TransferServer] Public ConnectBack connection to {ip}. Enforcing E2EE (TLS)...");
+                    var sslStream = new SslStream(stream, false);
+                    await sslStream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions {
+                        ServerCertificate = crypto.NodeCertificate,
+                        ClientCertificateRequired = false,
+                        EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                        CertificateRevocationCheckMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck
+                    }, token);
+                    stream = sslStream;
+                }
+
+                using var finalStream = stream;
+                using var writer = new StreamWriter(finalStream, Encoding.UTF8, leaveOpen: true);
 
                 // Notify the downloader that we are responding to their ConnectBack request
                 await writer.WriteLineAsync($"CB_READY|{fileHash}");
@@ -230,7 +260,7 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
                 logger.LogInfo($"[TransferServer] Sent CB_READY|{fileHash} to downloader ({ip})");
 
                 // Wait for the downloader to send the actually desired request
-                using var reader = new StreamReader(stream, Encoding.UTF8, leaveOpen: true);
+                using var reader = new StreamReader(finalStream, Encoding.UTF8, leaveOpen: true);
                 var reqLine = await reader.ReadLineAsync(token);
                 logger.LogInfo($"[TransferServer] Received request from downloader ({ip}): {reqLine}");
                 if (reqLine == null) return;
@@ -246,20 +276,20 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
                         string? filePath = shareManager.GetLocalPathsByTth(fileHash).FirstOrDefault();
                         if (filePath != null && File.Exists(filePath))
                         {
-                            await SendFileContentAsync(stream, filePath, offset, size, fileHash, ip, token);
+                            await SendFileContentAsync(finalStream, filePath, offset, size, fileHash, ip, token);
                         }
                     }
                 }
                 else if (reqLine == "REQ_LIST|")
                 {
                     logger.LogInfo($"[TransferServer] Sending full file list to ({ip})...");
-                    await SendFullFileListAsync(stream);
+                    await SendFullFileListAsync(finalStream);
                     logger.LogInfo($"[TransferServer] File list sent to ({ip}).");
                 }
                 else if (reqLine.StartsWith("REQ_DIR|"))
                 {
                     var path = reqLine.Substring("REQ_DIR|".Length);
-                    await SendDirectoryListAsync(stream, path);
+                    await SendDirectoryListAsync(finalStream, path);
                 }
             }
         }

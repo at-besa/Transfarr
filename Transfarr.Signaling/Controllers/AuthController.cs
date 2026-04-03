@@ -15,7 +15,7 @@ namespace Transfarr.Signaling.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController(UserDatabase db, IOptions<HubOptions> options, NetworkStateService networkState) : ControllerBase
+public class AuthController(UserDatabase db, IOptions<HubOptions> options, NetworkStateService networkState, ILogger<AuthController> logger) : ControllerBase
 {
     private readonly HubOptions options = options.Value;
 
@@ -34,11 +34,17 @@ public class AuthController(UserDatabase db, IOptions<HubOptions> options, Netwo
     public IActionResult Register([FromBody] LoginRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.Username) || string.IsNullOrWhiteSpace(request.Password))
+        {
+            logger.LogWarning("Registration failed: Missing Username or Password attempt from IP {IP}", HttpContext.Connection.RemoteIpAddress);
             return BadRequest("Username and Password are required.");
+        }
 
         var existing = db.GetUser(request.Username);
         if (existing != null)
+        {
+            logger.LogWarning("Registration failed: User '{Username}' already exists. IP: {IP}", request.Username, HttpContext.Connection.RemoteIpAddress);
             return BadRequest("User already exists.");
+        }
 
         string hash = BCrypt.Net.BCrypt.HashPassword(request.Password);
         
@@ -46,8 +52,12 @@ public class AuthController(UserDatabase db, IOptions<HubOptions> options, Netwo
         string role = db.GetAllUsernames().Count == 0 ? "Admin" : "User";
 
         if (db.CreateUser(request.Username, hash, role))
+        {
+            logger.LogInformation("Registration successful: New user '{Username}' created with role '{Role}' from IP: {IP}", request.Username, role, HttpContext.Connection.RemoteIpAddress);
             return Ok(new { Message = "Registration successful" });
+        }
         
+        logger.LogError("Registration failed: Database constraint or unknown error while creating '{Username}'.", request.Username);
         return StatusCode(500, "Failed to create user");
     }
 
@@ -66,15 +76,18 @@ public class AuthController(UserDatabase db, IOptions<HubOptions> options, Netwo
         var user = db.GetUser(request.Username);
         if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.Value.Hash))
         {
+            logger.LogWarning("Login failed: Invalid credentials for user '{Username}' from IP: {IP}", request.Username, HttpContext.Connection.RemoteIpAddress);
             networkState.RecordError();
             return Unauthorized(new AuthResponse { Success = false, Error = "Invalid username or password" });
         }
 
         if (user.Value.IsSuspended)
         {
+            logger.LogWarning("Login failed: Suspended account '{Username}' attempted login from IP: {IP}", request.Username, HttpContext.Connection.RemoteIpAddress);
             return Unauthorized(new AuthResponse { Success = false, Error = "Your account has been suspended by an administrator." });
         }
 
+        logger.LogInformation("Login successful: '{Username}' authenticated successfully from IP: {IP}", request.Username, HttpContext.Connection.RemoteIpAddress);
         networkState.RecordLoginAttempt();
         var token = GenerateJwtToken(request.Username, user.Value.Role);
         return Ok(new AuthResponse 

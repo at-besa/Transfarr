@@ -10,16 +10,28 @@ namespace Transfarr.Signaling.Hubs;
 
 [Authorize]
 [SignalRHub]
-public class SignalingHub(NetworkStateService networkState, UserDatabase db) : Hub
+public class SignalingHub(NetworkStateService networkState, UserDatabase db, ILogger<SignalingHub> logger) : Hub
 {
+    public override async Task OnConnectedAsync()
+    {
+        string username = Context.User?.Identity?.Name ?? "Unknown";
+        var remoteIp = Context.GetHttpContext()?.Connection.RemoteIpAddress?.ToString() ?? "Unknown IP";
+        logger.LogInformation("Client connected: {ConnectionId} | User: {Username} | IP: {IP}", Context.ConnectionId, username, remoteIp);
+        await base.OnConnectedAsync();
+    }
 
     public override async Task OnDisconnectedAsync(System.Exception? exception)
     {
         var peer = networkState.ActivePeers.FirstOrDefault(p => p.ConnectionId == Context.ConnectionId);
         if (peer != null)
         {
+            logger.LogInformation("Peer removed: {Name} ({PeerId}) from ConnectionId: {ConnectionId}", peer.Name, peer.PeerId, Context.ConnectionId);
             networkState.RemovePeer(Context.ConnectionId);
             await Clients.Others.SendAsync("PeerLeft", peer.PeerId);
+        }
+        else 
+        {
+            logger.LogInformation("Client disconnected without active PeerInfo. ConnectionId: {ConnectionId}", Context.ConnectionId);
         }
         await base.OnDisconnectedAsync(exception);
     }
@@ -57,6 +69,7 @@ public class SignalingHub(NetworkStateService networkState, UserDatabase db) : H
             DirectIp = resolvedIp,
             Name = username 
         };
+        logger.LogInformation("Peer {Name} joined as Node. PeerId: {PeerId} | DirectIP: {DirectIp} | Passivity: {Passive}", username, peer.PeerId, resolvedIp, peer.IsPassive);
         networkState.AddOrUpdatePeer(Context.ConnectionId, actualPeer);
         
         await Clients.Caller.SendAsync("PeerList", networkState.ActivePeers);

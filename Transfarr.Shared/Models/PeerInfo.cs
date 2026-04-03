@@ -9,5 +9,6 @@ public record PeerInfo(
     int TransferPort = 0,
     bool IsPassive = false,
     string LocalIp = "",
-    string PublicIp = ""
+    string PublicIp = "",
+    string CertificateThumbprint = ""
 );

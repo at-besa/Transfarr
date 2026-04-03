@@ -23,12 +23,14 @@ public class NodeConnectionManager : IHostedService
     private readonly DownloadManager downloadManager;
     private readonly SystemLogger logger;
     private readonly NodeOptions options;
+    private readonly CryptoManager crypto;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<IEnumerable<string>>> pendingNegotiations = new();
     private readonly CancellationTokenSource serviceCts = new();
 
-    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger, IOptions<NodeOptions> options)
+    public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger, IOptions<NodeOptions> options, CryptoManager crypto)
     {
         this.shareManager = shareManager;
+        this.crypto = crypto;
         this.transferServer = transferServer;
         this.db = db;
         this.downloadManager = downloadManager;
@@ -238,7 +240,7 @@ public class NodeConnectionManager : IHostedService
                 }
                 
                 string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? localIp : effectivePublicIp);
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, localIp, effectivePublicIp);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, localIp, effectivePublicIp, crypto.CertificateThumbprint);
             await hub.InvokeAsync("JoinAsNode", peerInfo, cancellationToken);
         }
         catch (Exception ex)
@@ -309,7 +311,7 @@ public class NodeConnectionManager : IHostedService
             var results = shareManager.SearchLocal(req.Query);
             foreach (var res in results)
             {
-                var selfInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort, IsPassive, localIp, "");
+                var selfInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, "", transferServer.ListenPort, IsPassive, localIp, "", crypto.CertificateThumbprint);
                 var searchResult = new SearchResult(res, selfInfo);
                 await hub.InvokeAsync("SubmitSearchResult", requesterConnId, searchResult);
             }
@@ -613,7 +615,7 @@ public class NodeConnectionManager : IHostedService
             }
 
             string directIp = !string.IsNullOrWhiteSpace(ManualPublicIp) ? ManualPublicIp : (IsPassive ? localIp : effectivePublicIp);
-            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, localIp, effectivePublicIp);
+            var peerInfo = new PeerInfo(hub.ConnectionId ?? "", PeerId, NodeName, shareManager.TotalSharedBytes, directIp, transferServer.ListenPort, IsPassive, localIp, effectivePublicIp, crypto.CertificateThumbprint);
             await hub.InvokeAsync("UpdateNodeParams", peerInfo);
         }
     }

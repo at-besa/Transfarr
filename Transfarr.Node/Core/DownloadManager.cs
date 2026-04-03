@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Net.Security;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using Transfarr.Shared.Models;
@@ -22,6 +24,28 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
     private readonly CancellationTokenSource shutdownCts = new();
     private readonly System.Diagnostics.Stopwatch progressStopwatch = System.Diagnostics.Stopwatch.StartNew();
     private long lastProgressTicks = 0;
+
+    private async Task<Stream> SecureStreamAsync(TcpClient client, Stream baseStream, string expectedThumbprint, CancellationToken token)
+    {
+        var remoteEp = client.Client.RemoteEndPoint as System.Net.IPEndPoint;
+        if (remoteEp != null && !CryptoManager.IsPrivateOrLocalIp(remoteEp.Address))
+        {
+            logger.LogInfo($"[DownloadManager] Public connection to {remoteEp.Address}. Enforcing E2EE (TLS)...");
+            var sslStream = new SslStream(baseStream, false, (sender, cert, chain, err) => {
+                if (cert == null) return false;
+                bool match = string.Equals(cert.GetCertHashString(), expectedThumbprint, StringComparison.OrdinalIgnoreCase);
+                if (!match) logger.LogWarning($"[DownloadManager] E2EE Certificate mismatch! Expected {expectedThumbprint}, Got {cert.GetCertHashString()}");
+                return match;
+            });
+            await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions {
+                TargetHost = "TransfarrP2PPeer",
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
+            }, token);
+            return sslStream;
+        }
+        return baseStream;
+    }
     
     public Func<string, string, Task>? RequestConnectBackAction { get; set; }
     public Func<string, string, Task<IEnumerable<string>>>? RequestNegotiationAction { get; set; }
@@ -148,7 +172,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
                 if (completedTask != tcs.Task) return;
                 
                 client = await tcs.Task;
-                stream = client.GetStream();
+                stream = await SecureStreamAsync(client, client.GetStream(), targetPeer.CertificateThumbprint, shutdownCts.Token);
             }
             else
             {
@@ -198,7 +222,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
                     throw new Exception($"Failed to connect to {targetPeer.Name} after trying all candidates ({string.Join(", ", candidates)})."); 
                 }
                 client = finalClient;
-                stream = finalStream;
+                stream = await SecureStreamAsync(client, finalStream, targetPeer.CertificateThumbprint, shutdownCts.Token);
             }
 
             using (client)
@@ -331,7 +355,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
                 }
 
                 client = await tcs.Task;
-                stream = client.GetStream();
+                stream = await SecureStreamAsync(client, client.GetStream(), item.TargetPeer.CertificateThumbprint, shutdownCts.Token);
                 
                 // Now that we have the reverse connection, we must send the REQ_FILE command
                 // so the uploader (performing ConnectBack) knows what to send.
@@ -388,7 +412,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
                     throw new Exception($"Failed to connect after trying all candidates ({string.Join(", ", candidates)}).");
                 }
                 client = finalClient;
-                stream = finalStream;
+                stream = await SecureStreamAsync(client, finalStream, item.TargetPeer.CertificateThumbprint, shutdownCts.Token);
                 
                 using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
                 long bytesRemaining = item.FileSize - item.BytesDownloaded;
