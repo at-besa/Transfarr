@@ -42,9 +42,9 @@ public class CryptoManager
         // Create the certificate valid from yesterday (to avoid timezone clock skew issues) to 30 days ahead
         var cert = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(30));
 
-        // Export and re-import to ensure private key is accessible by SslStream on Windows/Linux flawlessly
+        // Export and re-import to ensure private key is accessible by SslStream (Windows SChannel does not support EphemeralKeySet for Server authentication)
         var export = cert.Export(X509ContentType.Pfx);
-        return X509CertificateLoader.LoadPkcs12(export, null, X509KeyStorageFlags.EphemeralKeySet);
+        return X509CertificateLoader.LoadPkcs12(export, null, X509KeyStorageFlags.Exportable);
     }
 
     /// <summary>
