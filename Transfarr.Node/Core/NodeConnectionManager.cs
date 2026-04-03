@@ -27,6 +27,28 @@ public class NodeConnectionManager : IHostedService
     private readonly ConcurrentDictionary<string, TaskCompletionSource<IEnumerable<string>>> pendingNegotiations = new();
     private readonly CancellationTokenSource serviceCts = new();
 
+    private async Task<Stream> SecureStreamAsync(TcpClient client, Stream baseStream, string expectedThumbprint, CancellationToken token)
+    {
+        var remoteEp = client.Client.RemoteEndPoint as System.Net.IPEndPoint;
+        if (remoteEp != null && !CryptoManager.IsPrivateOrLocalIp(remoteEp.Address))
+        {
+            logger.LogInfo($"[Node] Public connection to {remoteEp.Address}. Enforcing E2EE (TLS)...");
+            var sslStream = new System.Net.Security.SslStream(baseStream, false, (sender, cert, chain, err) => {
+                if (cert == null) return false;
+                bool match = string.Equals(cert.GetCertHashString(), expectedThumbprint, StringComparison.OrdinalIgnoreCase);
+                if (!match) logger.LogWarning($"[Node] E2EE Certificate mismatch! Expected {expectedThumbprint}, Got {cert.GetCertHashString()}");
+                return match;
+            });
+            await sslStream.AuthenticateAsClientAsync(new System.Net.Security.SslClientAuthenticationOptions {
+                TargetHost = "TransfarrP2PPeer",
+                EnabledSslProtocols = System.Security.Authentication.SslProtocols.Tls12 | System.Security.Authentication.SslProtocols.Tls13,
+                CertificateRevocationCheckMode = System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck
+            }, token);
+            return sslStream;
+        }
+        return baseStream;
+    }
+
     public NodeConnectionManager(ShareManager shareManager, TransferServer transferServer, ShareDatabase db, DownloadManager downloadManager, SystemLogger logger, IOptions<NodeOptions> options, CryptoManager crypto)
     {
         this.shareManager = shareManager;
@@ -484,7 +506,7 @@ public class NodeConnectionManager : IHostedService
                 }
                 
                 client = await connectionTcs.Task;
-                stream = client.GetStream();
+                stream = await SecureStreamAsync(client, client.GetStream(), targetPeer.CertificateThumbprint, serviceCts.Token);
             }
             else
             {
@@ -546,7 +568,7 @@ public class NodeConnectionManager : IHostedService
                 throw new Exception($"Failed to connect to {targetPeer.Name} after trying all candidates ({string.Join(", ", candidates)}).");
             }
             client = finalClient;
-            stream = finalStream;
+            stream = await SecureStreamAsync(client, finalStream, targetPeer.CertificateThumbprint, serviceCts.Token);
         }
         
         OnFilelistStatusUpdate?.Invoke(targetPeerId, "Connected! Downloading list...");
