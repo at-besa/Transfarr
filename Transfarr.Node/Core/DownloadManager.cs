@@ -15,7 +15,7 @@ using Transfarr.Node.Options;
 
 namespace Transfarr.Node.Core;
 
-public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options)
+public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options, BandwidthController bandwidthController)
 {
     private readonly NodeOptions options = options.Value;
     private readonly ConcurrentDictionary<string, DownloadItem> items = new();
@@ -436,6 +436,8 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
                     wasAborted = true;
                     break;
                 }
+
+                await bandwidthController.ConsumeDownloadAsync(read, shutdownCts.Token);
 
                 await fs.WriteAsync(buffer, 0, read);
                 item.BytesDownloaded += read;

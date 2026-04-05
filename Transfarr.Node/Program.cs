@@ -62,8 +62,10 @@ builder.Services.AddSwaggerGen(c =>
 builder.Services.AddSingleton<SystemLogger>();
 builder.Services.AddSingleton<ShareDatabase>();
 builder.Services.AddSingleton<ShareManager>();
+builder.Services.AddSingleton<BandwidthController>();
 builder.Services.AddSingleton<CryptoManager>();
 builder.Services.AddSingleton<TransferServer>();
+
 builder.Services.AddSingleton<DownloadManager>();
 builder.Services.AddSingleton<NodeConnectionManager>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeConnectionManager>());
@@ -97,6 +99,14 @@ var sm = app.Services.GetRequiredService<ShareManager>();
 var logger = app.Services.GetRequiredService<SystemLogger>();
 var ts = app.Services.GetRequiredService<TransferServer>();
 var crypto = app.Services.GetRequiredService<CryptoManager>();
+var bc = app.Services.GetRequiredService<BandwidthController>();
+
+// Initialize Bandwidth Limits
+var db = app.Services.GetRequiredService<ShareDatabase>();
+int ulL = int.TryParse(db.GetSetting("UploadLimitMBps"), out var ulV) ? ulV : 0;
+int dlL = int.TryParse(db.GetSetting("DownloadLimitMBps"), out var dlV) ? dlV : 0;
+bc.SetUploadLimitMBps(ulL);
+bc.SetDownloadLimitMBps(dlL);
 
 sm.Initialize();
 dl.Initialize();
@@ -151,7 +161,15 @@ ts.OnUploadsChanged += (uploads) => {
     hubContext.Clients.All.SendAsync("UploadUpdate", uploads);
 };
 
-
+// Start Global Bandwidth monitor task
+_ = Task.Run(async () => {
+    while (true)
+    {
+        bc.TickReport();
+        await hubContext.Clients.All.SendAsync("GlobalBandwidthReport", bc.InstantaneousUploadMBps, bc.InstantaneousDownloadMBps);
+        await Task.Delay(1000);
+    }
+});
 
 app.MapControllers();
 app.MapFallbackToFile("index.html");

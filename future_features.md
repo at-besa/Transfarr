@@ -27,3 +27,8 @@ This document keeps track of planned and proposed features for future developmen
 ## 6. Reputation System Expansion
 - Expand the rudimentary point system (10 GB = 1 point).
 - Introduce user ranks (e.g., Bronze, Silver, Gold) or privileges (e.g., higher download priority from peers you have uploaded heavily to).
+
+## 7. Application-Integrated Update System
+- Implement an automated update check on startup.
+- Allow users to download and install updates directly from the application UI.
+- Use a dedicated update-hub or integrate with the Global Hub for update distribution.

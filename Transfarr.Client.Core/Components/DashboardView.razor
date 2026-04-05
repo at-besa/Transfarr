@@ -1,0 +1,103 @@
+@using Transfarr.Client.Core.Services
+@using ApexCharts
+@inject ConnectionManager Connection
+@implements IDisposable
+
+<div style="max-width:1000px; width:100%; margin:0 auto;">
+    <h2 style="font-size:24px; font-weight:300; color:var(--text-highlight); margin-bottom:24px;">Network Dashboard & Speed Control</h2>
+    
+    <div style="display:flex; gap:20px; margin-bottom:24px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:300px; background:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:20px;">
+            <h3 style="font-size:14px; margin-bottom:16px;">Download Limit (MB/s)</h3>
+            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <button class="btn-clean" style="padding:6px 12px; font-size:12px; border-radius:12px; @(currentDlLimit == 0 ? "background:var(--accent-blue); color:white;" : "background:rgba(255,255,255,0.05); color:var(--text-muted);")" @onclick="() => SetDlLimit(0)">Unlimited</button>
+                @foreach (var limit in presets)
+                {
+                    <button class="btn-clean" style="padding:6px 12px; font-size:12px; border-radius:12px; @(currentDlLimit == limit ? "background:var(--accent-blue); color:white;" : "background:rgba(255,255,255,0.05); color:var(--text-muted);")" @onclick="() => SetDlLimit(limit)">@limit</button>
+                }
+                
+                <input type="number" class="input-clean" style="width:60px; padding:4px 8px; font-size:12px;" @bind="customDlLimit" />
+                <button class="btn-clean" style="padding:4px 12px; font-size:12px; background:rgba(255,255,255,0.1);" @onclick="() => SetDlLimit(customDlLimit)">Apply</button>
+            </div>
+        </div>
+
+        <div style="flex:1; min-width:300px; background:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:20px;">
+            <h3 style="font-size:14px; margin-bottom:16px;">Upload Limit (MB/s)</h3>
+            <div style="display:flex; flex-wrap:wrap; gap:8px;">
+                <button class="btn-clean" style="padding:6px 12px; font-size:12px; border-radius:12px; @(currentUlLimit == 0 ? "background:var(--accent-blue); color:white;" : "background:rgba(255,255,255,0.05); color:var(--text-muted);")" @onclick="() => SetUlLimit(0)">Unlimited</button>
+                @foreach (var limit in presets)
+                {
+                    <button class="btn-clean" style="padding:6px 12px; font-size:12px; border-radius:12px; @(currentUlLimit == limit ? "background:var(--accent-blue); color:white;" : "background:rgba(255,255,255,0.05); color:var(--text-muted);")" @onclick="() => SetUlLimit(limit)">@limit</button>
+                }
+                
+                <input type="number" class="input-clean" style="width:60px; padding:4px 8px; font-size:12px;" @bind="customUlLimit" />
+                <button class="btn-clean" style="padding:4px 12px; font-size:12px; background:rgba(255,255,255,0.1);" @onclick="() => SetUlLimit(customUlLimit)">Apply</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="background:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; padding:20px;">
+        <h3 style="font-size:14px; margin-bottom:16px;">Global Bandwidth Profiling</h3>
+        
+        <ApexChart TItem="BandwidthDataPoint" Title="Real-time Speed (MB/s)" Height="300" Options="chartOptions" @ref="chart">
+            <ApexPointSeries TItem="BandwidthDataPoint" Items="Connection.BandwidthHistory.ToList()" Name="Download" SeriesType="SeriesType.Area" XValue="@(e => e.Time)" YValue="@(e => e.DownloadMBps)" Color="#00E396" />
+            <ApexPointSeries TItem="BandwidthDataPoint" Items="Connection.BandwidthHistory.ToList()" Name="Upload" SeriesType="SeriesType.Area" XValue="@(e => e.Time)" YValue="@(e => e.UploadMBps)" Color="#008FFB" />
+        </ApexChart>
+        
+    </div>
+</div>
+
+@code {
+    private ApexChart<BandwidthDataPoint>? chart;
+    private int[] presets = { 1, 5, 10, 15, 25, 50, 100 };
+    
+    private int currentDlLimit = 0;
+    private int currentUlLimit = 0;
+    private int customDlLimit = 0;
+    private int customUlLimit = 0;
+
+    private ApexChartOptions<BandwidthDataPoint> chartOptions = new() {
+        Chart = new Chart {
+            Toolbar = new Toolbar { Show = false },
+            Animations = new Animations { Enabled = false },
+            Background = "transparent"
+        },
+        Theme = new Theme { Mode = Mode.Dark },
+        DataLabels = new DataLabels { Enabled = false },
+        Stroke = new Stroke { Curve = Curve.Smooth, Width = 2 },
+        Markers = new Markers { Size = new List<double> { 0, 0 } },
+        Xaxis = new XAxis { 
+            TickAmount = 15,
+            Tooltip = new XAxisTooltip { Enabled = false } 
+        },
+        Yaxis = new List<YAxis> { new YAxis { Min = 0 } }
+    };
+
+    protected override void OnInitialized()
+    {
+        Connection.OnStateChanged += HandleStateChanged;
+    }
+
+    public void Dispose()
+    {
+        Connection.OnStateChanged -= HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        chart?.RenderAsync();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SetDlLimit(int limit)
+    {
+        currentDlLimit = limit;
+        await Connection.SetDownloadLimit(limit);
+    }
+
+    private async Task SetUlLimit(int limit)
+    {
+        currentUlLimit = limit;
+        await Connection.SetUploadLimit(limit);
+    }
+}

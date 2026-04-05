@@ -162,9 +162,10 @@ else if (!Connection.IsConnectedToGlobalHub)
 }
 else
 {
-    <!-- Master DC++ Layout (identical to previous) -->
-    <div style="display:flex; height:100vh; background-color:var(--bg-app); font-family:var(--font-family); overflow:hidden;">
+    <!-- Master DC++ Layout -->
+    <div style="display:flex; flex-direction:column; height:100vh; background-color:var(--bg-app); font-family:var(--font-family); overflow:hidden;">
         
+        <div style="display:flex; flex:1; overflow:hidden;">
         <!-- Left Sidebar (Navigation) -->
         <div style="width:48px; background-color:var(--bg-panel); border-right:1px solid var(--border-color); display:flex; flex-direction:column; align-items:center; padding-top:16px; z-index:10;">
             <div style="width:32px; height:32px; border-radius:4px; overflow:hidden; display:flex; align-items:center; justify-content:center; margin-bottom:16px; cursor:pointer;" title="Transfarr">
@@ -187,6 +188,9 @@ else
             </div>
             <div style="width:48px; height:48px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); cursor:pointer; font-size:18px; @(leftNav == "Logs" ? "color:var(--text-highlight); border-left:2px solid var(--accent-blue); background-color:var(--bg-active);" : "")" @onclick='() => leftNav = "Logs"' title="System Logs">
                 📜
+            </div>
+            <div style="width:48px; height:48px; display:flex; align-items:center; justify-content:center; color:var(--text-muted); cursor:pointer; font-size:18px; @(leftNav == "Dashboard" ? "color:var(--text-highlight); border-left:2px solid var(--accent-blue); background-color:var(--bg-active);" : "")" @onclick='() => leftNav = "Dashboard"' title="Network Dashboard">
+                📈
             </div>
         </div>
 
@@ -272,6 +276,25 @@ else
                 <LogsView />
             </div>
         }
+        else if (leftNav == "Dashboard")
+        {
+            <div style="flex:1; display:flex; flex-direction:column; padding:32px; overflow-y:auto; background-color:var(--bg-app);">
+                <DashboardView />
+            </div>
+        }
+        </div>
+        <!-- GLOBAL BOTTOM BAR -->
+        <div style="height:32px; background-color:var(--bg-panel); border-top:1px solid var(--border-color); display:flex; align-items:center; padding:0 16px; font-size:12px; transition: all 0.2s;">
+            <div style="display:flex; gap:16px; align-items:center; cursor:pointer;" @onclick='() => leftNav = "Dashboard"'>
+                <span title="Global Download Speed">⬇ @Connection.GlobalDownloadMBps.ToString("0.0") MB/s</span>
+                <span style="color:var(--text-muted);">|</span>
+                <span title="Global Upload Speed">⬆ @Connection.GlobalUploadMBps.ToString("0.0") MB/s</span>
+            </div>
+            
+            <div style="margin-left:auto; display:flex; align-items:center; color:var(--text-muted); font-size:11px;">
+                Transfarr P2P
+            </div>
+        </div>
     </div>
 }
 

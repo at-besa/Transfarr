@@ -9,7 +9,7 @@ using SignalRSwaggerGen.Attributes;
 namespace Transfarr.Node.Hubs;
 
 [SignalRHub]
-public class LocalClientHub(NodeConnectionManager node, DownloadManager downloads, ShareManager shares, ShareDatabase db, TransferServer ts, SystemLogger logger, CryptoManager crypto) : Hub
+public class LocalClientHub(NodeConnectionManager node, DownloadManager downloads, ShareManager shares, ShareDatabase db, TransferServer ts, SystemLogger logger, CryptoManager crypto, BandwidthController bc) : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -261,5 +261,17 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
     {
         await node.SetManualPublicIp(ip);
         await Clients.All.SendAsync("ManualPublicIpUpdate", ip);
+    }
+
+    public void SetUploadLimit(int limitMBps)
+    {
+        db.SaveSetting("UploadLimitMBps", limitMBps.ToString());
+        bc.SetUploadLimitMBps(limitMBps);
+    }
+    
+    public void SetDownloadLimit(int limitMBps)
+    {
+        db.SaveSetting("DownloadLimitMBps", limitMBps.ToString());
+        bc.SetDownloadLimitMBps(limitMBps);
     }
 }

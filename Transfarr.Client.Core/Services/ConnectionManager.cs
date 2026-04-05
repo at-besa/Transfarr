@@ -8,9 +8,15 @@ using Transfarr.Shared.Models;
 
 namespace Transfarr.Client.Core.Services;
 
+public record BandwidthDataPoint(string Time, decimal UploadMBps, decimal DownloadMBps);
+
 public class ConnectionManager() : IAsyncDisposable
 {
     private HubConnection? hub;
+    
+    public ObservableCollection<BandwidthDataPoint> BandwidthHistory { get; } = new(
+        Enumerable.Range(1, 1800).Reverse().Select(i => new BandwidthDataPoint(DateTime.Now.AddSeconds(-i).ToString("HH:mm:ss"), 0, 0))
+    );
     
     public ObservableCollection<PeerInfo> OnlinePeers { get; } = new();
     public ObservableCollection<string> ConnectedPeers { get; } = new(); 
@@ -30,6 +36,9 @@ public class ConnectionManager() : IAsyncDisposable
     public int ConnectivityMode { get; private set; } = 0; // 0=Auto, 1=Active, 2=Passive
     public HashProgressState CurrentHashProgress { get; private set; } = new();
     public string? ManualPublicIp { get; private set; }
+    
+    public double GlobalUploadMBps { get; private set; }
+    public double GlobalDownloadMBps { get; private set; }
     
     public ObservableCollection<LogEntry> SystemLogs { get; } = new();
     public ObservableCollection<SearchResult> SearchResults { get; } = new();
@@ -172,6 +181,15 @@ public class ConnectionManager() : IAsyncDisposable
             OnStateChanged?.Invoke();
         });
 
+        hub.On<double, double>("GlobalBandwidthReport", (up, down) =>
+        {
+            GlobalUploadMBps = up;
+            GlobalDownloadMBps = down;
+            BandwidthHistory.Add(new BandwidthDataPoint(DateTime.Now.ToString("HH:mm:ss"), (decimal)up, (decimal)down));
+            if (BandwidthHistory.Count > 1800) BandwidthHistory.RemoveAt(0); // keep last 30 minutes
+            OnStateChanged?.Invoke();
+        });
+
         await hub.StartAsync();
         
         // Load initial favorites
@@ -246,6 +264,18 @@ public class ConnectionManager() : IAsyncDisposable
         if (hub?.State == HubConnectionState.Connected)
             return await hub.InvokeAsync<Dictionary<string, List<string>>>("GetDuplicates");
         return new Dictionary<string, List<string>>();
+    }
+
+    public async Task SetUploadLimit(int limitMBps)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.SendAsync("SetUploadLimit", limitMBps);
+    }
+
+    public async Task SetDownloadLimit(int limitMBps)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.SendAsync("SetDownloadLimit", limitMBps);
     }
 
     public async Task<HashSet<string>> GetLocalTths()

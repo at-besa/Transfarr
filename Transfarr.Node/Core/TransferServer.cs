@@ -17,7 +17,7 @@ using Transfarr.Node.Options;
 
 namespace Transfarr.Node.Core;
 
-public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options, CryptoManager crypto)
+public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemLogger logger, IOptions<NodeOptions> options, CryptoManager crypto, BandwidthController bandwidthController)
 {
     private readonly NodeOptions options = options.Value;
     private TcpListener? listener;
@@ -201,6 +201,8 @@ public class TransferServer(ShareManager shareManager, ShareDatabase db, SystemL
             {
                 int read = await fileStream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), token);
                 if (read == 0) break;
+                
+                await bandwidthController.ConsumeUploadAsync(read, token);
                 await stream.WriteAsync(buffer.AsMemory(0, read), token);
                 remaining -= read;
 
