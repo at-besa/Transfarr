@@ -40,8 +40,8 @@
         <h3 style="font-size:14px; margin-bottom:16px;">Global Bandwidth Profiling</h3>
         
         <ApexChart TItem="BandwidthDataPoint" Title="Real-time Speed (MB/s)" Height="300" Options="chartOptions" @ref="chart">
-            <ApexPointSeries TItem="BandwidthDataPoint" Items="Connection.BandwidthHistory.ToList()" Name="Download" SeriesType="SeriesType.Area" XValue="@(e => e.Time)" YValue="@(e => e.DownloadMBps)" Color="#00E396" />
-            <ApexPointSeries TItem="BandwidthDataPoint" Items="Connection.BandwidthHistory.ToList()" Name="Upload" SeriesType="SeriesType.Area" XValue="@(e => e.Time)" YValue="@(e => e.UploadMBps)" Color="#008FFB" />
+            <ApexPointSeries TItem="BandwidthDataPoint" Items="Connection.BandwidthHistory" Name="Download" SeriesType="SeriesType.Area" XValue="@(e => e.Time)" YValue="@(e => e.DownloadMBps)" Color="#00E396" />
+            <ApexPointSeries TItem="BandwidthDataPoint" Items="Connection.BandwidthHistory" Name="Upload" SeriesType="SeriesType.Area" XValue="@(e => e.Time)" YValue="@(e => e.UploadMBps)" Color="#008FFB" />
         </ApexChart>
         
     </div>
