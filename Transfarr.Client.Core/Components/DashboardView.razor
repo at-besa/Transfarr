@@ -83,10 +83,21 @@
         Connection.OnStateChanged -= HandleStateChanged;
     }
 
+    private int tickCounter = 0;
+
     private void HandleStateChanged()
     {
-        chart?.RenderAsync();
-        InvokeAsync(StateHasChanged);
+        tickCounter++;
+        if (tickCounter >= 3)
+        {
+            tickCounter = 0;
+            _ = InvokeAsync(async () => 
+            {
+                if (chart != null) 
+                    await chart.UpdateSeriesAsync(true);
+                StateHasChanged();
+            });
+        }
     }
 
     private async Task SetDlLimit(int limit)
