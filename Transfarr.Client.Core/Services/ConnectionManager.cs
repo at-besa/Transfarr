@@ -14,7 +14,7 @@ public class ConnectionManager() : IAsyncDisposable
 {
     private HubConnection? hub;
     
-    public ObservableCollection<BandwidthDataPoint> BandwidthHistory { get; } = new(
+    public List<BandwidthDataPoint> BandwidthHistory { get; } = new(
         Enumerable.Range(1, 1800).Reverse().Select(i => new BandwidthDataPoint(DateTime.Now.AddSeconds(-i).ToString("HH:mm:ss"), 0, 0))
     );
     
