@@ -100,15 +100,15 @@
         }
     }
 
-    private async Task SetDlLimit(int limit)
+    private void SetDlLimit(int limit)
     {
         currentDlLimit = limit;
-        await Connection.SetDownloadLimit(limit);
+        _ = Connection.SetDownloadLimit(limit);
     }
 
-    private async Task SetUlLimit(int limit)
+    private void SetUlLimit(int limit)
     {
         currentUlLimit = limit;
-        await Connection.SetUploadLimit(limit);
+        _ = Connection.SetUploadLimit(limit);
     }
 }

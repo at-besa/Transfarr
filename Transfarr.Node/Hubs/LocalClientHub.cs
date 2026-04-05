@@ -265,13 +265,13 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
 
     public void SetUploadLimit(int limitMBps)
     {
-        db.SaveSetting("UploadLimitMBps", limitMBps.ToString());
         bc.SetUploadLimitMBps(limitMBps);
+        _ = Task.Run(() => db.SaveSetting("UploadLimitMBps", limitMBps.ToString()));
     }
     
     public void SetDownloadLimit(int limitMBps)
     {
-        db.SaveSetting("DownloadLimitMBps", limitMBps.ToString());
         bc.SetDownloadLimitMBps(limitMBps);
+        _ = Task.Run(() => db.SaveSetting("DownloadLimitMBps", limitMBps.ToString()));
     }
 }
