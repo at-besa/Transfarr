@@ -101,9 +101,11 @@
         if (tickCounter >= 3)
         {
             tickCounter = 0;
-            _ = InvokeAsync(() => 
+            _ = InvokeAsync(async () => 
             {
                 RefreshChartData();
+                if (chart != null) 
+                    await chart.UpdateSeriesAsync(true);
                 StateHasChanged();
             });
         }
