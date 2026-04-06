@@ -4,8 +4,8 @@ WORKDIR /app
 EXPOSE 5150
 EXPOSE 5151
 
-# Install curl for healthcheck
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# Install curl and adduser for healthcheck and user management
+RUN apt-get update && apt-get install -y --no-install-recommends curl adduser && rm -rf /var/lib/apt/lists/*
 
 # Use SDK for building
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
@@ -33,7 +33,7 @@ FROM base AS final
 WORKDIR /app
 
 # Add a non-root user for security
-RUN adduser --disabled-password --gecos "" transfarr
+RUN useradd -m -s /bin/bash transfarr
 
 # Create persistent directories and set ownership
 RUN mkdir -p /app/data /app/downloads /app/shares && \
