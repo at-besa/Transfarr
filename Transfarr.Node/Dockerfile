@@ -4,6 +4,9 @@ WORKDIR /app
 EXPOSE 5150
 EXPOSE 5151
 
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Use SDK for building
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
@@ -28,11 +31,31 @@ RUN dotnet publish "Transfarr.Node.csproj" -c Release -o /app/publish /p:UseAppH
 # Final runtime image
 FROM base AS final
 WORKDIR /app
+
+# Add a non-root user for security
+RUN adduser --disabled-password --gecos "" transfarr
+
+# Create persistent directories and set ownership
+RUN mkdir -p /app/data /app/downloads /app/shares && \
+    chown -R transfarr:transfarr /app
+
+# Switch to non-root user
+USER transfarr
+
 COPY --from=build /app/publish .
 
-# Create persistent directories
-RUN mkdir -p /app/data /app/downloads /app/shares
+# Define persistent volumes
+VOLUME ["/app/data", "/app/downloads", "/app/shares"]
 
 # Default environment for running in container
 ENV ASPNETCORE_URLS=http://0.0.0.0:5150
+ENV Transfarr__Storage__DatabasePath=/app/data/node.db
+ENV Transfarr__Storage__DefaultDownloadsFolder=/app/downloads
+ENV Transfarr__NodePort=5150
+ENV Transfarr__Network__P2PPort=5151
+
+# Healthcheck to verify the node is responsive
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -f http://localhost:5150/health || exit 1
+
 ENTRYPOINT ["dotnet", "Transfarr.Node.dll"]
