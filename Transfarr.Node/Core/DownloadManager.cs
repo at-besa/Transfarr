@@ -22,8 +22,39 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
     private readonly ConcurrentDictionary<string, DownloadItem> activeDownloads = new();
     private readonly ConcurrentDictionary<string, TaskCompletionSource<TcpClient>> pendingReverseConnections = new();
     private readonly CancellationTokenSource shutdownCts = new();
+    private readonly ConcurrentDictionary<string, List<string>> swarmPeers = new(); // TTH -> List of Peer IDs
+    public Func<IEnumerable<PeerInfo>>? NodePeersProvider { get; set; }
+
+    private const long SegmentSize = 20 * 1024 * 1024; // 20MB
     private readonly System.Diagnostics.Stopwatch progressStopwatch = System.Diagnostics.Stopwatch.StartNew();
     private long lastProgressTicks = 0;
+
+    private int GetSegmentCount(long fileSize) => (int)Math.Ceiling((double)fileSize / SegmentSize);
+    
+    private byte[] GetBitfieldBytes(string hex)
+    {
+        if (string.IsNullOrEmpty(hex)) return Array.Empty<byte>();
+        try { return Enumerable.Range(0, hex.Length / 2).Select(x => Convert.ToByte(hex.Substring(x * 2, 2), 16)).ToArray(); }
+        catch { return Array.Empty<byte>(); }
+    }
+
+    private string ToHex(byte[] bytes) => BitConverter.ToString(bytes).Replace("-", "");
+
+    private bool IsSegmentFinished(byte[] bitfield, int index)
+    {
+        int byteIdx = index / 8;
+        if (byteIdx >= bitfield.Length) return false;
+        int bitIdx = index % 8;
+        return (bitfield[byteIdx] & (1 << bitIdx)) != 0;
+    }
+
+    private void MarkSegmentFinished(byte[] bitfield, int index)
+    {
+        int byteIdx = index / 8;
+        if (byteIdx >= bitfield.Length) return;
+        int bitIdx = index % 8;
+        bitfield[byteIdx] |= (byte)(1 << bitIdx);
+    }
 
     private async Task<Stream> SecureStreamAsync(TcpClient client, Stream baseStream, string expectedThumbprint, CancellationToken token)
     {
@@ -271,14 +302,15 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
 
         foreach (var item in pendingQueue)
         {
-            if (!activeDownloads.Values.Any(a => a.TargetPeerId == item.TargetPeerId))
+            // Only start if we aren't already downloading this file
+            if (!activeDownloads.ContainsKey(item.Id))
             {
                 item.Status = "Downloading";
                 db.UpsertDownloadItem(item);
                 activeDownloads.TryAdd(item.Id, item);
                 OnQueueChanged?.Invoke();
                 
-                _ = DownloadFileAsync(item);
+                _ = DownloadFileSwarmAsync(item);
             }
         }
     }
@@ -301,7 +333,7 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
         pendingReverseConnections[identifier] = tcs;
     }
 
-    private async Task DownloadFileAsync(DownloadItem item)
+    private async Task DownloadFileSwarmAsync(DownloadItem item)
     {
         string targetDir = string.IsNullOrEmpty(item.RelativePath) 
             ? DownloadsFolder 
@@ -312,183 +344,256 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
 
         try
         {
-            // Collision Handling: Ensure we don't overwrite existing files
-            if (item.BytesDownloaded == 0)
+            // Initialize Bitfield if empty
+            int segmentCount = GetSegmentCount(item.FileSize);
+            int bitfieldByteCount = (int)Math.Ceiling(segmentCount / 8.0);
+            byte[] bitfield = GetBitfieldBytes(item.Bitfield);
+            if (bitfield.Length != bitfieldByteCount)
             {
-                filePath = GetUniqueFilePath(targetDir, item.FileName);
-                item.FileName = Path.GetFileName(filePath);
+                bitfield = new byte[bitfieldByteCount];
+                item.Bitfield = ToHex(bitfield);
+                item.BytesDownloaded = 0;
             }
 
-            logger.LogInfo($"[Download] Starting: {item.FileName} from {item.TargetPeer.Name}");
-            using var fs = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.None);
+            logger.LogInfo($"[Swarm] Starting: {item.FileName} ({segmentCount} segments) from Swarm");
             
-            item.BytesDownloaded = fs.Length;
-            if (item.BytesDownloaded >= item.FileSize && item.FileSize > 0)
-            {
-                logger.LogInfo($"[Download] Already finished: {item.FileName}");
-                CompleteDownload(item);
-                return;
-            }
+            // Open file for shared writing
+            using var fs = new FileStream(filePath, FileMode.OpenOrCreate, FileAccess.Write, FileShare.ReadWrite);
+            if (fs.Length < item.FileSize) fs.SetLength(item.FileSize); // Pre-allocate
+
+            var activeWorkers = new ConcurrentDictionary<string, bool>(); // PeerId -> Working
+            var semaphore = new SemaphoreSlim(5); // Max 5 parallel connections
+            var segmentLock = new object();
             
-            fs.Seek(item.BytesDownloaded, SeekOrigin.Begin);
-
-            TcpClient client;
-            Stream stream;
-
-            if (item.TargetPeer.IsPassive)
+            // Main Swarm Control Loop: Parallel Worker Management
+            int maxParallel = 5;
+            var segments = Enumerable.Range(0, segmentCount).ToList();
+            var activeSegments = new ConcurrentDictionary<int, bool>();
+            var uploaderPool = new ConcurrentBag<PeerInfo>();
+            if (item.TargetPeer != null) uploaderPool.Add(item.TargetPeer);
+            
+            // Add discovered peers from DB
+            foreach (var peerId in item.DiscoveredPeers)
             {
-                logger.LogInfo($"[Download] Peer {item.TargetPeer.Name} is passive. Requesting ConnectBack...");
-                var tcs = new TaskCompletionSource<TcpClient>();
-                pendingReverseConnections[item.Tth] = tcs;
-
-                if (RequestConnectBackAction != null)
-                {
-                    await RequestConnectBackAction(item.TargetPeerId, item.Tth);
-                }
-
-                // Wait for the reverse connection
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, shutdownCts.Token));
-                if (completedTask != tcs.Task)
-                {
-                    pendingReverseConnections.TryRemove(item.Tth, out _);
-                    throw new Exception("Timeout waiting for uploader to connect back or shutdown requested.");
-                }
-
-                client = await tcs.Task;
-                stream = await SecureStreamAsync(client, client.GetStream(), item.TargetPeer.CertificateThumbprint, shutdownCts.Token);
-                
-                // Now that we have the reverse connection, we must send the REQ_FILE command
-                // so the uploader (performing ConnectBack) knows what to send.
-                var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
-                long bytesRemaining = item.FileSize - item.BytesDownloaded;
-                await writer.WriteLineAsync($"REQ_FILE|{item.Tth}|{item.BytesDownloaded}|{bytesRemaining}");
-                await writer.FlushAsync();
+                var p = NodePeersProvider?.Invoke().FirstOrDefault(x => x.PeerId == peerId);
+                if (p != null) uploaderPool.Add(p);
             }
-            else
-            {
-                // Stage 3: Negotiation
-                logger.LogInfo($"[Download] Negotiating connection for file {item.FileName} with {item.TargetPeer.Name}...");
-                IEnumerable<string> candidates = new List<string> { item.TargetPeer.DirectIp };
-                if (RequestNegotiationAction != null)
-                {
-                    candidates = await RequestNegotiationAction(item.TargetPeerId, item.Id);
-                }
 
-                TcpClient? finalClient = null;
-                Stream? finalStream = null;
-                bool connected = false;
-                foreach (var ip in candidates.Distinct())
-                {
-                    if (string.IsNullOrEmpty(ip)) continue;
-                    TcpClient candidateClient = new TcpClient();
-                    try
+            var workerTasks = new List<Task>();
+            for (int w = 0; w < maxParallel; w++)
+            {
+                workerTasks.Add(Task.Run(async () => {
+                    while (!shutdownCts.Token.IsCancellationRequested && items.ContainsKey(item.Id))
                     {
-                        logger.LogInfo($"[Download] Trying candidate: {ip}:{item.TargetPeer.TransferPort} for {item.FileName}...");
-                        var connectTask = candidateClient.ConnectAsync(ip, item.TargetPeer.TransferPort, shutdownCts.Token).AsTask();
-                        if (await Task.WhenAny(connectTask, Task.Delay(3000, shutdownCts.Token)) == connectTask)
+                        // 1. Pick a segment
+                        int segIdx = -1;
+                        lock (segmentLock)
                         {
-                            await connectTask;
-                            connected = true;
-                            finalClient = candidateClient;
-                            finalStream = candidateClient.GetStream();
-                            logger.LogInfo($"[Download] Connected to {item.TargetPeer.Name} for {item.FileName} via {ip}");
-                            break;
+                            for (int i = 0; i < segmentCount; i++)
+                            {
+                                if (!IsSegmentFinished(bitfield, i) && !activeSegments.ContainsKey(i))
+                                {
+                                    segIdx = i;
+                                    activeSegments[i] = true;
+                                    break;
+                                }
+                            }
                         }
-                        else
+                        if (segIdx == -1) break; // Finished!
+
+                        // 2. Pick an uploader
+                        var peer = uploaderPool.FirstOrDefault(p => !activeWorkers.ContainsKey(p.PeerId));
+                        if (peer == null) 
                         {
-                            logger.LogWarning($"[Download] Connection timeout for {ip}");
-                            candidateClient.Dispose();
+                            activeSegments.TryRemove(segIdx, out _);
+                            await Task.Delay(1000);
+                            continue;
                         }
+
+                        activeWorkers[peer.PeerId] = true;
+                        try 
+                        {
+                            long offset = segIdx * SegmentSize;
+                            long length = Math.Min(SegmentSize, item.FileSize - offset);
+                            
+                            bool success = await DownloadSegmentAsync(item, peer, offset, length, fs);
+                            if (success)
+                            {
+                                lock (segmentLock) MarkSegmentFinished(bitfield, segIdx);
+                                UpdateProgress(item, bitfield, segmentCount);
+                            }
+                            else
+                            {
+                                // Uploader failed, remove it from pool for this session?
+                                // For now just cool down
+                                activeSegments.TryRemove(segIdx, out _);
+                                await Task.Delay(3000);
+                            }
+                        }
+                        finally { activeWorkers.TryRemove(peer.PeerId, out _); }
                     }
-                    catch (Exception ex)
-                    {
-                        logger.LogWarning($"[Download] Connection failed for {ip}: {ex.Message}");
-                        candidateClient.Dispose();
-                    }
-                }
-
-                if (!connected || finalClient == null || finalStream == null) 
-                {
-                    throw new Exception($"Failed to connect after trying all candidates ({string.Join(", ", candidates)}).");
-                }
-                client = finalClient;
-                stream = await SecureStreamAsync(client, finalStream, item.TargetPeer.CertificateThumbprint, shutdownCts.Token);
-                
-                using var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
-                long bytesRemaining = item.FileSize - item.BytesDownloaded;
-                await writer.WriteLineAsync($"REQ_FILE|{item.Tth}|{item.BytesDownloaded}|{bytesRemaining}");
-                await writer.FlushAsync();
+                }));
             }
+
+            await Task.WhenAll(workerTasks);
             
-            using (client)
-            using (stream)
-            {
-                byte[] buffer = new byte[81920];
-            int read;
-            bool wasAborted = false;
-
-            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length, shutdownCts.Token)) > 0)
-            {
-                // Check if we were removed from queue during download
-                if (!items.ContainsKey(item.Id))
-                {
-                    logger.LogWarning($"[Download] Aborted: {item.FileName} (Removed from Queue)");
-                    wasAborted = true;
-                    break;
-                }
-
-                await bandwidthController.ConsumeDownloadAsync(read, shutdownCts.Token);
-
-                await fs.WriteAsync(buffer, 0, read);
-                item.BytesDownloaded += read;
-
-                // Throttle progress updates to ~5 times per second
-                long currentTicks = progressStopwatch.ElapsedMilliseconds;
-                if (currentTicks - lastProgressTicks > 200)
-                {
-                    lastProgressTicks = currentTicks;
-                    db.UpsertDownloadItem(item); // Save progress periodically
-                    OnQueueChanged?.Invoke();
-                }
-            }
-            
-            // Handle Cleanup if Aborted
-            if (wasAborted)
-            {
-                fs.Close();
-                if (File.Exists(filePath)) 
-                {
-                    File.Delete(filePath);
-                    logger.LogInfo($"[Download] Cleaned up partial file: {filePath}");
-                }
-                return;
-            }
-
-            // Final update after loop to ensure 100% shows
-            OnQueueChanged?.Invoke();
-
             if (item.BytesDownloaded >= item.FileSize)
             {
                 CompleteDownload(item);
             }
-            else
-            {
-                item.Status = "Error (Incomplete)";
-                logger.LogWarning($"[Download] Incomplete: {item.FileName} ({item.BytesDownloaded}/{item.FileSize} bytes)");
-                CompleteDownload(item);
-            }
-            }
         }
         catch(Exception ex)
         {
-            // Only update status if item is still in dictionary
             if (items.TryGetValue(item.Id, out var currentItem))
             {
                 currentItem.Status = "Error";
-                logger.LogError($"[Download] Failed {item.FileName}: {ex.Message}");
+                logger.LogError($"[Swarm] Failed {item.FileName}: {ex.Message}");
                 CompleteDownload(currentItem);
             }
         }
+    }
+
+    private void UpdateProgress(DownloadItem item, byte[] bitfield, int segmentCount)
+    {
+        long total = 0;
+        for (int s = 0; s < segmentCount; s++)
+        {
+            if (IsSegmentFinished(bitfield, s))
+                total += Math.Min(SegmentSize, item.FileSize - (s * SegmentSize));
+        }
+        item.BytesDownloaded = total;
+        item.Bitfield = ToHex(bitfield);
+        
+        long currentTicks = progressStopwatch.ElapsedMilliseconds;
+        if (currentTicks - lastProgressTicks > 500)
+        {
+            lastProgressTicks = currentTicks;
+            db.UpsertDownloadItem(item);
+            OnQueueChanged?.Invoke();
+        }
+    }
+
+    public void RegisterDiscoveredPeer(string tth, PeerInfo peer)
+    {
+        var item = items.Values.FirstOrDefault(i => i.Tth == tth);
+        if (item != null)
+        {
+            if (!item.DiscoveredPeers.Contains(peer.PeerId))
+            {
+                item.DiscoveredPeers.Add(peer.PeerId);
+                db.UpsertDownloadItem(item);
+                logger.LogInfo($"[Swarm] New uploader for {item.FileName}: {peer.Name}");
+            }
+        }
+    }
+
+    public void MatchQueueWithPeer(PeerInfo peer, string fileListJson)
+    {
+        try
+        {
+            var root = System.Text.Json.JsonSerializer.Deserialize<FileListItem>(fileListJson);
+            if (root == null) return;
+
+            var peerFiles = Flatten(root);
+            var queue = items.Values.Where(i => i.Status != "Finished").ToList();
+            int matches = 0;
+
+            foreach (var qItem in queue)
+            {
+                if (peerFiles.Any(f => f.Tth == qItem.Tth))
+                {
+                    if (!qItem.DiscoveredPeers.Contains(peer.PeerId))
+                    {
+                        qItem.DiscoveredPeers.Add(peer.PeerId);
+                        db.UpsertDownloadItem(qItem);
+                        matches++;
+                    }
+                }
+            }
+
+            if (matches > 0)
+            {
+                logger.LogInfo($"[Swarm] Matched {matches} items from queue with peer {peer.Name}");
+                OnQueueChanged?.Invoke();
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"[Swarm] Failed to match queue with peer {peer.Name}: {ex.Message}");
+        }
+    }
+
+    private List<FileListItem> Flatten(FileListItem item)
+    {
+        var list = new List<FileListItem>();
+        if (!item.IsDirectory) list.Add(item);
+        if (item.Children != null)
+        {
+            foreach (var child in item.Children)
+            {
+                list.AddRange(Flatten(child));
+            }
+        }
+        return list;
+    }
+
+    private async Task<bool> DownloadSegmentAsync(DownloadItem item, PeerInfo peer, long offset, long length, FileStream fs)
+    {
+        try
+        {
+            TcpClient client;
+            Stream stream;
+
+            if (peer.IsPassive)
+            {
+                var tcs = new TaskCompletionSource<TcpClient>();
+                var reqId = $"SW_{item.Tth}_{offset}";
+                pendingReverseConnections[reqId] = tcs;
+
+                if (RequestConnectBackAction != null) await RequestConnectBackAction(peer.PeerId, reqId);
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(10000, shutdownCts.Token));
+                if (completedTask != tcs.Task) return false;
+                client = await tcs.Task;
+                stream = await SecureStreamAsync(client, client.GetStream(), peer.CertificateThumbprint, shutdownCts.Token);
+            }
+            else
+            {
+                client = new TcpClient();
+                var connectTask = client.ConnectAsync(peer.DirectIp, peer.TransferPort, shutdownCts.Token).AsTask();
+                if (await Task.WhenAny(connectTask, Task.Delay(5000, shutdownCts.Token)) != connectTask) return false;
+                await connectTask;
+                stream = await SecureStreamAsync(client, client.GetStream(), peer.CertificateThumbprint, shutdownCts.Token);
+            }
+
+            using (client)
+            using (stream)
+            {
+                var writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen: true);
+                await writer.WriteLineAsync($"REQ_FILE|{item.Tth}|{offset}|{length}");
+                await writer.FlushAsync();
+
+                byte[] buffer = new byte[81920];
+                long totalRead = 0;
+                
+                while (totalRead < length)
+                {
+                    int read = await stream.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, length - totalRead), shutdownCts.Token);
+                    if (read == 0) break;
+
+                    await bandwidthController.ConsumeDownloadAsync(read, shutdownCts.Token);
+                    
+                    lock (fs)
+                    {
+                        fs.Seek(offset + totalRead, SeekOrigin.Begin);
+                        fs.Write(buffer, 0, read);
+                    }
+                    totalRead += read;
+                }
+                
+                return totalRead == length;
+            }
+        }
+        catch { return false; }
     }
 
     private void CompleteDownload(DownloadItem item)

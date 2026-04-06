@@ -27,9 +27,17 @@
                     </div>
                 </div>
                 
-                <button class="btn-clean" @onclick='() => Connection.SendMessage(peer.PeerId, "REQ_FILELIST")' style="padding: 6px 10px; font-size: 12px; background-color: var(--accent-blue); color: white;">
-                    @(isMe ? "My Files" : "Browse")
-                </button>
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <button class="btn-clean" @onclick='() => Connection.SendMessage(peer.PeerId, "REQ_FILELIST")' style="padding: 4px 10px; font-size: 11px; background-color: var(--accent-blue); color: white; border-radius: 4px;">
+                        @(isMe ? "My Files" : "Browse")
+                    </button>
+                    @if (!isMe)
+                    {
+                        <button class="btn-clean" @onclick='() => MatchWithPeer(peer.PeerId)' style="padding: 2px 10px; font-size: 10px; border-color: var(--accent-blue); color: var(--accent-blue); border-radius: 4px;" title="Search this peer's files for matches in my queue">
+                            Match
+                        </button>
+                    }
+                </div>
             </div>
         }
 
@@ -56,6 +64,11 @@
     }
 
     private void HandleStateChanged() => InvokeAsync(StateHasChanged);
+
+    private async Task MatchWithPeer(string peerId)
+    {
+        await Connection.MatchQueueWithPeer(peerId);
+    }
 
     public void Dispose()
     {

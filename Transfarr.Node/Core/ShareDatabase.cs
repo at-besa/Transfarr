@@ -99,10 +99,36 @@ public class ShareDatabase
                     Tth TEXT NOT NULL,
                     Status TEXT NOT NULL,
                     BytesDownloaded INTEGER NOT NULL,
-                    RelativePath TEXT NOT NULL
+                    RelativePath TEXT NOT NULL,
+                    Bitfield TEXT DEFAULT '',
+                    DiscoveredPeers TEXT DEFAULT ''
                 );";
             using (var command = new SqliteCommand(createQueueTable, connection))
                 command.ExecuteNonQuery();
+
+            // Migration: Add columns if they don't exist
+            using (var cmd = new SqliteCommand("PRAGMA table_info(DownloadQueue)", connection))
+            using (var reader = cmd.ExecuteReader())
+            {
+                bool hasBitfield = false;
+                bool hasPeers = false;
+                while (reader.Read())
+                {
+                    var colName = reader.GetString(1);
+                    if (colName == "Bitfield") hasBitfield = true;
+                    if (colName == "DiscoveredPeers") hasPeers = true;
+                }
+                if (!hasBitfield)
+                {
+                    using var alter = new SqliteCommand("ALTER TABLE DownloadQueue ADD COLUMN Bitfield TEXT DEFAULT ''", connection);
+                    alter.ExecuteNonQuery();
+                }
+                if (!hasPeers)
+                {
+                    using var alter = new SqliteCommand("ALTER TABLE DownloadQueue ADD COLUMN DiscoveredPeers TEXT DEFAULT ''", connection);
+                    alter.ExecuteNonQuery();
+                }
+            }
 
             var createFileIndexTable = @"
                 CREATE VIRTUAL TABLE IF NOT EXISTS FileIndex USING fts5(
@@ -310,7 +336,7 @@ public class ShareDatabase
             var result = new List<Transfarr.Shared.Models.DownloadItem>();
             using var connection = new SqliteConnection(connectionString);
             connection.Open();
-            using var command = new SqliteCommand("SELECT Id, TargetPeerId, TargetPeerName, FileName, FileSize, Tth, Status, BytesDownloaded, RelativePath FROM DownloadQueue", connection);
+            using var command = new SqliteCommand("SELECT Id, TargetPeerId, TargetPeerName, FileName, FileSize, Tth, Status, BytesDownloaded, RelativePath, Bitfield, DiscoveredPeers FROM DownloadQueue", connection);
             using var reader = command.ExecuteReader();
             while (reader.Read())
             {
@@ -324,7 +350,9 @@ public class ShareDatabase
                     Tth = reader.GetString(5),
                     Status = reader.GetString(6),
                     BytesDownloaded = reader.GetInt64(7),
-                    RelativePath = reader.GetString(8)
+                    RelativePath = reader.GetString(8),
+                    Bitfield = reader.IsDBNull(9) ? "" : reader.GetString(9),
+                    DiscoveredPeers = (reader.IsDBNull(10) ? "" : reader.GetString(10)).Split(',', StringSplitOptions.RemoveEmptyEntries).ToList()
                 });
             }
             return result;
@@ -338,20 +366,22 @@ public class ShareDatabase
             using var connection = new SqliteConnection(connectionString);
             connection.Open();
             var sql = @"
-                INSERT INTO DownloadQueue (Id, TargetPeerId, TargetPeerName, FileName, FileSize, Tth, Status, BytesDownloaded, RelativePath)
-                VALUES (@id, @pid, @pname, @fname, @fsize, @tth, @status, @bytes, @rel)
+                INSERT INTO DownloadQueue (Id, TargetPeerId, TargetPeerName, FileName, FileSize, Tth, Status, BytesDownloaded, RelativePath, Bitfield, DiscoveredPeers)
+                VALUES (@id, @pid, @pname, @fname, @fsize, @tth, @status, @bytes, @rel, @bit, @peers)
                 ON CONFLICT(Id) DO UPDATE SET 
-                Status=excluded.Status, BytesDownloaded=excluded.BytesDownloaded;";
+                Status=excluded.Status, BytesDownloaded=excluded.BytesDownloaded, Bitfield=excluded.Bitfield, DiscoveredPeers=excluded.DiscoveredPeers, FileName=excluded.FileName;";
             using var command = new SqliteCommand(sql, connection);
             command.Parameters.AddWithValue("@id", item.Id);
             command.Parameters.AddWithValue("@pid", item.TargetPeerId);
-            command.Parameters.AddWithValue("@pname", item.TargetPeer.Name);
+            command.Parameters.AddWithValue("@pname", item.TargetPeer?.Name ?? "Unknown");
             command.Parameters.AddWithValue("@fname", item.FileName);
             command.Parameters.AddWithValue("@fsize", item.FileSize);
             command.Parameters.AddWithValue("@tth", item.Tth);
             command.Parameters.AddWithValue("@status", item.Status);
             command.Parameters.AddWithValue("@bytes", item.BytesDownloaded);
             command.Parameters.AddWithValue("@rel", item.RelativePath);
+            command.Parameters.AddWithValue("@bit", item.Bitfield ?? "");
+            command.Parameters.AddWithValue("@peers", string.Join(',', item.DiscoveredPeers));
             command.ExecuteNonQuery();
         }
     }

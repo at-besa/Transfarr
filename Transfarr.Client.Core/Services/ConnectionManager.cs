@@ -169,12 +169,6 @@ public class ConnectionManager() : IAsyncDisposable
             OnStateChanged?.Invoke();
         });
 
-        hub.On<HashProgressState>("HashProgressUpdate", state =>
-        {
-            CurrentHashProgress = state;
-            OnStateChanged?.Invoke();
-        });
-
         hub.On<PeerInfo>("SelfStatus", self =>
         {
             LocalPeer = self;
@@ -191,10 +185,7 @@ public class ConnectionManager() : IAsyncDisposable
         });
 
         await hub.StartAsync();
-        
-        // Load initial favorites
         await RefreshHubFavorites();
-
         OnStateChanged?.Invoke();
     }
 
@@ -313,7 +304,6 @@ public class ConnectionManager() : IAsyncDisposable
         {
             await hub.InvokeAsync("SendPrivateMessage", targetPeerId, content);
             
-            // Add to local UI as well
             if (!PrivateMessages.TryGetValue(targetPeerId, out var msgs))
             {
                 msgs = new ObservableCollection<ChatMessage>();
@@ -382,7 +372,7 @@ public class ConnectionManager() : IAsyncDisposable
     {
         if (hub?.State == HubConnectionState.Connected)
             return await hub.InvokeAsync<bool>("IsDownloadPathConfigured");
-        return true; // Default to true to not block if disconnected
+        return true; 
     }
 
     public async Task SetDownloadPath(string path)
@@ -476,6 +466,18 @@ public class ConnectionManager() : IAsyncDisposable
     {
         if (hub?.State == HubConnectionState.Connected)
             await hub.InvokeAsync("DisconnectFromGlobalHub");
+    }
+
+    public async Task MatchQueueGlobally()
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("MatchQueueGlobally");
+    }
+
+    public async Task MatchQueueWithPeer(string targetPeerId)
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("MatchQueueWithPeer", targetPeerId);
     }
 
     public async ValueTask DisposeAsync()

@@ -7,11 +7,19 @@
     
     <!-- Active Downloads Section -->
     <section>
-        <h3 style="font-size:16px; font-weight:600; color:var(--text-highlight); margin-bottom:16px; display:flex; align-items:center; gap:8px;">
-            <span>⏳</span> Active & Pending Downloads
-            <span style="font-size:12px; font-weight:400; color:var(--text-muted); background:var(--bg-panel); padding:2px 8px; border-radius:10px; margin-left:8px;">
-                @ActiveItems.Count()
-            </span>
+        <h3 style="font-size:16px; font-weight:600; color:var(--text-highlight); margin-bottom:16px; display:flex; align-items:center; gap:8px; justify-content:space-between;">
+            <div style="display:flex; align-items:center; gap:8px;">
+                <span>⏳</span> Active & Pending Downloads
+                <span style="font-size:12px; font-weight:400; color:var(--text-muted); background:var(--bg-panel); padding:2px 8px; border-radius:10px; margin-left:8px;">
+                    @ActiveItems.Count()
+                </span>
+            </div>
+            @if (ActiveItems.Any(i => i.Status != "Finished"))
+            {
+                <button class="btn-primary" style="font-size:11px; padding:4px 12px; border-radius:12px; display:flex; align-items:center; gap:6px;" @onclick="MatchQueueGlobally">
+                    <span style="font-size:12px;">🔗</span> Match Queue Globally
+                </button>
+            }
         </h3>
         
         <div style="background-color:var(--bg-panel); border:1px solid var(--border-color); border-radius:4px; overflow:hidden;">
@@ -39,7 +47,11 @@
                                 }
                             </td>
                             <td style="padding:10px 16px; font-family:monospace; color:var(--text-muted); font-size:11px;">
-                                @(item.TargetPeer?.Name ?? item.TargetPeerId.Substring(0, 8))
+                                @(item.TargetPeer?.Name ?? "Source")
+                                @if (item.DiscoveredPeers.Count > 0)
+                                {
+                                    <span style="display:block; font-size:9px; color:var(--accent-blue);">+ @item.DiscoveredPeers.Count others</span>
+                                }
                             </td>
                             <td style="padding:10px 16px; font-weight:600; font-size:12px;">
                                 @if (item.Status == "Downloading") { <span style="color:var(--accent-blue);">DOWNLOADING</span> }
@@ -135,9 +147,14 @@
     
     public void Dispose() => Connection.OnStateChanged -= Refresh;
 
-    private async Task RemoveItem(string id)
+    private void RemoveItem(string id)
     {
-        await Connection.RemoveFromDownload(id);
+        Connection.RemoveFromDownload(id);
+    }
+
+    private async Task MatchQueueGlobally()
+    {
+        await Connection.MatchQueueGlobally();
     }
 
     private async Task ClearHistory()

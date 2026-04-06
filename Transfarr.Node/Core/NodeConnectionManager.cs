@@ -78,6 +78,7 @@ public class NodeConnectionManager : IHostedService
             pendingNegotiations.TryRemove(requestId, out _);
             return new List<string>();
         };
+        this.downloadManager.NodePeersProvider = () => this.OnlinePeers;
     }
     public string PeerId { get; } = Guid.NewGuid().ToString("N");
     public string NodeName { get; set; } = string.Empty;
@@ -254,6 +255,9 @@ public class NodeConnectionManager : IHostedService
                     IsPassive = !isActive;
                 }
                 
+                // 4. Auto-Match Queue on Connect
+                _ = MatchQueueGlobally();
+                
                 string effectivePublicIp = publicIp;
                 if (IsPrivateIp(publicIp) && !string.IsNullOrEmpty(upnpExternalIp) && !IsPrivateIp(upnpExternalIp))
                 {
@@ -341,7 +345,9 @@ public class NodeConnectionManager : IHostedService
 
         hub.On<SearchResult>("ReceiveSearchResult", async (res) =>
         {
+            downloadManager.RegisterDiscoveredPeer(res.File.Tth, res.Peer);
             OnSearchResultReceived?.Invoke(res);
+            await Task.CompletedTask;
         });
 
         hub.On<string, string, string>("ReceivePrivateMessage", (targetId, senderId, content) =>
@@ -602,6 +608,10 @@ public class NodeConnectionManager : IHostedService
                 
                 string json = System.Text.Encoding.UTF8.GetString(dataBuffer);
                 fileListCache[targetPeerId] = json;
+                
+                // Auto-Match Queue with this list
+                downloadManager.MatchQueueWithPeer(targetPeer, json);
+                
                 OnFilelistReceived?.Invoke(targetPeerId, json);
                 tcs.SetResult();
             }
@@ -646,6 +656,23 @@ public class NodeConnectionManager : IHostedService
     {
         if (hub?.State == HubConnectionState.Connected)
             await hub.InvokeAsync("Search", new SearchRequest(query));
+    }
+
+    public async Task MatchQueueGlobally()
+    {
+        if (hub?.State != HubConnectionState.Connected) return;
+
+        var queue = downloadManager.AllItems.Where(i => i.Status == "Queued" || i.Status == "Downloading" || i.Status.Contains("Error")).ToList();
+        logger.LogInfo($"[Node] Triggering automatic Queue Match for {queue.Count} items...");
+        
+        foreach (var item in queue)
+        {
+            if (!string.IsNullOrEmpty(item.Tth))
+            {
+                await hub.InvokeAsync("Search", new SearchRequest(item.Tth));
+                await Task.Delay(200); // Throttle search requests slightly
+            }
+        }
     }
 
     public async Task SendPrivateMessage(string targetPeerId, string content)

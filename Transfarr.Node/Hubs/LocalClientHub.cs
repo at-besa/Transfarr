@@ -86,6 +86,28 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await node.PerformGlobalSearch(query);
     }
 
+    /// <summary>
+    /// Manually triggers a global search for all items in the download queue to find more sources.
+    /// </summary>
+    public async Task MatchQueueGlobally()
+    {
+        await node.MatchQueueGlobally();
+    }
+
+    /// <summary>
+    /// Matches the current download queue against a specific peer's file list.
+    /// </summary>
+    /// <param name="targetPeerId">The peer ID to match against.</param>
+    public async Task MatchQueueWithPeer(string targetPeerId)
+    {
+        var peer = node.OnlinePeers.FirstOrDefault(p => p.PeerId == targetPeerId);
+        if (peer != null)
+        {
+            await node.RequestRemoteFileListTcp(targetPeerId);
+            // MatchQueueWithPeer is automatically called in NodeConnectionManager when filelist is received.
+        }
+    }
+
     public async Task SendPrivateMessage(string targetPeerId, string content)
     {
         await node.SendPrivateMessage(targetPeerId, content);
