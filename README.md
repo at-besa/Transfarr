@@ -1,4 +1,15 @@
-![Transfarr Logo](transfarr.png)
+<p align="center">
+  <img src="transfarr.png" width="300" alt="Transfarr Logo">
+</p>
+
+<p align="center">
+  <a href="https://github.com/atbesa/Transfarr/actions/workflows/docker-publish.yml">
+    <img src="https://github.com/atbesa/Transfarr/actions/workflows/docker-publish.yml/badge.svg" alt="Docker Build & Publish">
+  </a>
+  <img src="https://img.shields.io/docker/v/atbesa/transfarr-node?logo=docker&label=docker%20hub" alt="Docker Hub Version">
+  <img src="https://img.shields.io/docker/image-size/atbesa/transfarr-node?logo=docker" alt="Docker Image Size">
+  <img src="https://img.shields.io/github/license/atbesa/Transfarr" alt="License">
+</p>
 
 # Transfarr P2P
 
