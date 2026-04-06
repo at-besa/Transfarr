@@ -6,7 +6,7 @@
   <a href="https://github.com/at-besa/Transfarr/actions/workflows/docker-publish.yml">
     <img src="https://github.com/at-besa/Transfarr/actions/workflows/docker-publish.yml/badge.svg" alt="Docker Build & Publish">
   </a>
-  <img src="https://img.shields.io/docker/v/atbesa/transfarr-node?sort=semver&logo=docker&label=docker%20hub" alt="Docker Hub Version">
+  <img src="https://img.shields.io/docker/v/atbesa/transfarr-node/latest?logo=docker&label=docker%20hub" alt="Docker Hub Version">
   <img src="https://img.shields.io/docker/image-size/atbesa/transfarr-node/latest?logo=docker" alt="Docker Image Size">
   <img src="https://img.shields.io/github/license/at-besa/Transfarr" alt="License">
 </p>
