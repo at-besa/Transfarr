@@ -8,7 +8,7 @@
   </a>
   <img src="https://img.shields.io/docker/v/atbesa/transfarr-node?logo=docker&label=docker%20hub" alt="Docker Hub Version">
   <img src="https://img.shields.io/docker/image-size/atbesa/transfarr-node?logo=docker" alt="Docker Image Size">
-  <img src="https://img.shields.io/github/license/atbesa/Transfarr" alt="License">
+  <img src="https://img.shields.io/github/license/at-besa/Transfarr" alt="License">
 </p>
 
 # Transfarr P2P
