@@ -103,6 +103,18 @@ public class ShareDatabase
                 );";
             using (var command = new SqliteCommand(createQueueTable, connection))
                 command.ExecuteNonQuery();
+
+            var createFileIndexTable = @"
+                CREATE VIRTUAL TABLE IF NOT EXISTS FileIndex USING fts5(
+                    FileName,
+                    VirtualPath UNINDEXED,
+                    Size UNINDEXED,
+                    Tth UNINDEXED,
+                    IsDirectory UNINDEXED,
+                    tokenize='unicode61'
+                );";
+            using (var command = new SqliteCommand(createFileIndexTable, connection))
+                command.ExecuteNonQuery();
         }
     }
 
@@ -354,5 +366,78 @@ public class ShareDatabase
             command.Parameters.AddWithValue("@id", id);
             command.ExecuteNonQuery();
         }
+    }
+
+    public void RebuildSearchIndex(IEnumerable<Transfarr.Shared.Models.FileMetadata> files)
+    {
+        lock (dbLock)
+        {
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            using var transaction = connection.BeginTransaction();
+            
+            using (var cmd = new SqliteCommand("DELETE FROM FileIndex", connection, transaction))
+                cmd.ExecuteNonQuery();
+
+            var sql = "INSERT INTO FileIndex (FileName, VirtualPath, Size, Tth, IsDirectory) VALUES (@fn, @vp, @s, @t, @d)";
+            using var insertCmd = new SqliteCommand(sql, connection, transaction);
+            var fnParam = insertCmd.Parameters.Add("@fn", SqliteType.Text);
+            var vpParam = insertCmd.Parameters.Add("@vp", SqliteType.Text);
+            var sParam = insertCmd.Parameters.Add("@s", SqliteType.Integer);
+            var tParam = insertCmd.Parameters.Add("@t", SqliteType.Text);
+            var dParam = insertCmd.Parameters.Add("@d", SqliteType.Integer);
+
+            foreach (var f in files)
+            {
+                fnParam.Value = f.Name;
+                vpParam.Value = f.Path;
+                sParam.Value = f.Size;
+                tParam.Value = f.Tth ?? "";
+                dParam.Value = f.IsDirectory ? 1 : 0;
+                insertCmd.ExecuteNonQuery();
+            }
+            
+            transaction.Commit();
+        }
+    }
+
+    public List<Transfarr.Shared.Models.FileMetadata> SearchFiles(string rawQuery, int limit = 100)
+    {
+        var results = new List<Transfarr.Shared.Models.FileMetadata>();
+        if (string.IsNullOrWhiteSpace(rawQuery)) return results;
+
+        var sanitized = rawQuery.Replace("\"", "").Replace("'", "").Trim();
+        if (string.IsNullOrEmpty(sanitized)) return results;
+        
+        var queryParts = sanitized.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var ftsQuery = string.Join(" AND ", System.Linq.Enumerable.Select(queryParts, p => $"\"{p}\"*"));
+
+        lock (dbLock)
+        {
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+            var sql = @"
+                SELECT FileName, VirtualPath, Size, Tth, IsDirectory 
+                FROM FileIndex 
+                WHERE FileIndex MATCH @q 
+                ORDER BY rank 
+                LIMIT @l";
+            using var cmd = new SqliteCommand(sql, connection);
+            cmd.Parameters.AddWithValue("@q", ftsQuery);
+            cmd.Parameters.AddWithValue("@l", limit);
+            
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                results.Add(new Transfarr.Shared.Models.FileMetadata(
+                    reader.GetString(0),
+                    reader.GetInt64(2),
+                    reader.GetString(3),
+                    reader.GetInt32(4) == 1,
+                    reader.GetString(1)
+                ));
+            }
+        }
+        return results;
     }
 }

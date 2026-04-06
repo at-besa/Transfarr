@@ -135,26 +135,18 @@ public class ShareManager(SystemLogger logger, ShareDatabase db, IOptions<NodeOp
 
     public List<FileMetadata> SearchLocal(string query)
     {
-        var results = new List<FileMetadata>();
-        foreach (var item in localFileList.Items)
-        {
-            SearchRecursive(item, item.Name, query, results);
-        }
-        return results;
+        return db.SearchFiles(query);
     }
 
-    private void SearchRecursive(FileListItem item, string currentPath, string query, List<FileMetadata> results)
+    private void FlattenRecursive(FileListItem item, string currentPath, List<FileMetadata> results)
     {
-        if (item.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
-        {
-            results.Add(new FileMetadata(item.Name, item.Size, item.Tth, item.IsDirectory, currentPath));
-        }
+        results.Add(new FileMetadata(item.Name, item.Size, item.Tth ?? "", item.IsDirectory, currentPath));
         
         if (item.Children != null)
         {
             foreach (var child in item.Children)
             {
-                SearchRecursive(child, currentPath + "/" + child.Name, query, results);
+                FlattenRecursive(child, currentPath + "/" + child.Name, results);
             }
         }
     }
@@ -353,6 +345,15 @@ public class ShareManager(SystemLogger logger, ShareDatabase db, IOptions<NodeOp
             
             localFileList = newFileList;
             TotalSharedBytes = incrementalSharedBytes;
+
+            // Flatten and push to blazing fast SQLite FTS5 Index
+            var flatList = new List<FileMetadata>();
+            foreach (var root in localFileList.Items)
+            {
+                FlattenRecursive(root, root.Name, flatList);
+            }
+            db.RebuildSearchIndex(flatList);
+
             OnShareSizeChanged?.Invoke(TotalSharedBytes);
 
             CurrentProgress.IsHashing = false;
