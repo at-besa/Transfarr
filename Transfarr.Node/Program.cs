@@ -101,8 +101,11 @@ var ts = app.Services.GetRequiredService<TransferServer>();
 var crypto = app.Services.GetRequiredService<CryptoManager>();
 var bc = app.Services.GetRequiredService<BandwidthController>();
 
-// Initialize Bandwidth Limits
+// Initialize Database
 var db = app.Services.GetRequiredService<ShareDatabase>();
+db.InitializeDatabase();
+
+// Initialize Bandwidth Limits
 int ulL = int.TryParse(db.GetSetting("UploadLimitMBps"), out var ulV) ? ulV : 0;
 int dlL = int.TryParse(db.GetSetting("DownloadLimitMBps"), out var dlV) ? dlV : 0;
 bc.SetUploadLimitMBps(ulL);
