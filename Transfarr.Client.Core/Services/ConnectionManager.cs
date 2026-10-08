@@ -39,6 +39,7 @@ public class ConnectionManager() : IAsyncDisposable
     
     public double GlobalUploadMBps { get; private set; }
     public double GlobalDownloadMBps { get; private set; }
+    public UpdateStatus CurrentUpdateStatus { get; private set; } = new();
     
     public ObservableCollection<LogEntry> SystemLogs { get; } = new();
     public ObservableCollection<SearchResult> SearchResults { get; } = new();
@@ -181,6 +182,12 @@ public class ConnectionManager() : IAsyncDisposable
             GlobalDownloadMBps = down;
             BandwidthHistory.Add(new BandwidthDataPoint(DateTime.Now.ToString("HH:mm:ss"), (decimal)up, (decimal)down));
             if (BandwidthHistory.Count > 1800) BandwidthHistory.RemoveAt(0); // keep last 30 minutes
+            OnStateChanged?.Invoke();
+        });
+
+        hub.On<UpdateStatus>("UpdateStatusChanged", status =>
+        {
+            CurrentUpdateStatus = status;
             OnStateChanged?.Invoke();
         });
 
@@ -478,6 +485,18 @@ public class ConnectionManager() : IAsyncDisposable
     {
         if (hub?.State == HubConnectionState.Connected)
             await hub.InvokeAsync("MatchQueueWithPeer", targetPeerId);
+    }
+
+    public async Task CheckForUpdateAsync()
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("CheckForUpdate");
+    }
+
+    public async Task InstallUpdateAsync()
+    {
+        if (hub?.State == HubConnectionState.Connected)
+            await hub.InvokeAsync("InstallUpdate");
     }
 
     public async ValueTask DisposeAsync()

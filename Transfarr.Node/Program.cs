@@ -68,6 +68,7 @@ builder.Services.AddSingleton<TransferServer>();
 
 builder.Services.AddSingleton<DownloadManager>();
 builder.Services.AddSingleton<NodeConnectionManager>();
+builder.Services.AddSingleton<Transfarr.Node.Services.UpdateService>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<NodeConnectionManager>());
 
 var app = builder.Build();
@@ -113,6 +114,14 @@ bc.SetDownloadLimitMBps(dlL);
 
 sm.Initialize();
 dl.Initialize();
+
+// Run initial background update check
+var updateService = app.Services.GetRequiredService<Transfarr.Node.Services.UpdateService>();
+_ = Task.Run(async () => {
+    await Task.Delay(3000);
+    await updateService.CheckForUpdateAsync();
+});
+
 // ts.Start() is now called by NodeConnectionManager.StartAsync() automatically.
 
 node.OnStateChanged += () => {

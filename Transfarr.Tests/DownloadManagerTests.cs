@@ -54,7 +54,8 @@ public class DownloadManagerTests : IDisposable
         var db = new ShareDatabase(options);
         db.InitializeDatabase();
         
-        var dm = new DownloadManager(db, logger, options);
+        var bc = new BandwidthController(Microsoft.Extensions.Logging.Abstractions.NullLogger<BandwidthController>.Instance);
+        var dm = new DownloadManager(db, logger, options, bc);
         dm.Initialize();
         dm.SetDownloadsFolder(downloadsDir);
         var peer = new PeerInfo("conn1", "peer1", "TestUser", 1000, "127.0.0.1", testPort);

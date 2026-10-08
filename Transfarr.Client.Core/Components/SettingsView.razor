@@ -272,6 +272,120 @@
         }
     </div>
 
+    <!-- Updates Card -->
+    <div class="settings-card">
+        <div class="card-header" @onclick="() => updatesExpanded = !updatesExpanded">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <span style="font-size:18px;">🔄</span>
+                <div>
+                    <h3 style="margin:0; font-size:15px; font-weight:600;">Updates</h3>
+                    <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">Check and apply application updates</div>
+                </div>
+            </div>
+            <span class="chevron @(updatesExpanded ? "expanded" : "")">▼</span>
+        </div>
+        
+        @if (updatesExpanded)
+        {
+            <div class="card-content">
+                <div style="background-color:var(--bg-app); border:1px solid rgba(255,255,255,0.05); border-radius:4px; padding:20px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                        <div>
+                            <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Current Version</div>
+                            <div style="font-size:18px; color:var(--text-highlight); font-weight:300; margin-top:2px;">v@Transfarr.Shared.AppVersion.Current</div>
+                        </div>
+                        
+                        @if (Connection.CurrentUpdateStatus.HasUpdate)
+                        {
+                            <div style="text-align:right;">
+                                <div style="font-size:11px; color:var(--text-muted); font-weight:600; text-transform:uppercase;">Latest Version</div>
+                                <div style="font-size:18px; color:#40c057; font-weight:300; margin-top:2px;">@Connection.CurrentUpdateStatus.LatestVersion</div>
+                            </div>
+                        }
+                    </div>
+
+                    @if (Connection.CurrentUpdateStatus.IsChecking)
+                    {
+                        <div style="color:var(--text-muted); font-size:13px; display:flex; align-items:center; gap:8px;">
+                            <span class="spinning">⟳</span> Checking for updates...
+                        </div>
+                    }
+                    else if (Connection.CurrentUpdateStatus.IsInstalling)
+                    {
+                        <div style="background:rgba(34, 139, 230, 0.05); border:1px solid rgba(34, 139, 230, 0.2); padding:16px; border-radius:4px;">
+                            <div style="display:flex; justify-content:space-between; font-size:11px; margin-bottom:6px; color:var(--text-highlight);">
+                                <span style="font-weight:600;">Downloading & Installing Update...</span>
+                                <span>@Connection.CurrentUpdateStatus.DownloadProgress%</span>
+                            </div>
+                            <div style="height:6px; background-color:rgba(0,0,0,0.3); border-radius:3px; overflow:hidden; margin-bottom:10px;">
+                                <div style="height:100%; width:@(Connection.CurrentUpdateStatus.DownloadProgress)%; background:linear-gradient(90deg, var(--accent-blue), #4dabf7); transition:width 0.3s ease;"></div>
+                            </div>
+                            <div style="font-size:11px; color:var(--text-muted);">
+                                The application will automatically shutdown, apply files, and restart once finished.
+                            </div>
+                        </div>
+                    }
+                    else if (Connection.CurrentUpdateStatus.HasUpdate)
+                    {
+                        <div style="background:rgba(64, 192, 87, 0.05); border:1px solid rgba(64, 192, 87, 0.2); padding:16px; border-radius:4px; margin-bottom:20px; color:var(--text-highlight); font-size:13px;">
+                            <strong>A new update is available!</strong>
+                            @if (!string.IsNullOrEmpty(Connection.CurrentUpdateStatus.ReleaseNotes))
+                            {
+                                <div style="margin-top:10px; background:rgba(0,0,0,0.2); padding:10px; border-radius:4px; max-height:150px; overflow-y:auto; font-family:monospace; font-size:11px; white-space:pre-wrap; color:var(--text-muted); border:1px solid rgba(255,255,255,0.03);">
+                                    @Connection.CurrentUpdateStatus.ReleaseNotes
+                                </div>
+                            }
+                        </div>
+
+                        @if (Connection.CurrentUpdateStatus.IsRunningInDocker)
+                        {
+                            <div style="background:rgba(230, 73, 73, 0.05); border:1px solid rgba(230, 73, 73, 0.2); padding:16px; border-radius:4px; font-size:12px; color:var(--text-highlight);">
+                                ℹ️ <strong>Running in Docker:</strong> Automatic updating is disabled inside containers.
+                                To update, pull the latest image and restart your stack:
+                                <pre style="background:rgba(0,0,0,0.3); padding:8px; border-radius:4px; margin-top:8px; margin-bottom:0; font-family:monospace; font-size:11px; overflow-x:auto; border:1px solid rgba(255,255,255,0.03);">docker compose pull && docker compose up -d</pre>
+                            </div>
+                        }
+                        else
+                        {
+                            if (string.IsNullOrEmpty(Connection.CurrentUpdateStatus.DownloadUrl))
+                            {
+                                <div style="color:#ff922b; font-size:12px; margin-bottom:12px;">
+                                    ⚠️ No direct download asset matching your OS/Architecture was found on the release. You may need to update manually.
+                                </div>
+                            }
+                            else
+                            {
+                                <button class="btn-clean" style="padding:10px 24px; background-color:#40c057; color:white; border:none; width:100%; font-weight:600;" @onclick="InstallUpdate">
+                                    Download & Install Update
+                                </button>
+                            }
+                        }
+                    }
+                    else
+                    {
+                        <div style="color:var(--text-muted); font-size:13px; margin-bottom:16px;">
+                            Your node is up-to-date.
+                        </div>
+                    }
+
+                    @if (!string.IsNullOrEmpty(Connection.CurrentUpdateStatus.ErrorMessage))
+                    {
+                        <div style="background:rgba(250, 82, 82, 0.05); border:1px solid rgba(250, 82, 82, 0.2); padding:12px; border-radius:4px; margin-top:16px; color:#ff6b6b; font-size:12px;">
+                            ❌ @Connection.CurrentUpdateStatus.ErrorMessage
+                        </div>
+                    }
+
+                    @if (!Connection.CurrentUpdateStatus.IsChecking && !Connection.CurrentUpdateStatus.IsInstalling)
+                    {
+                        <button class="btn-clean" style="padding:10px 24px; background-color:var(--accent-blue); color:white; border:none; margin-top:12px;" @onclick="CheckForUpdate">
+                            Check Now
+                        </button>
+                    }
+                </div>
+            </div>
+        }
+    </div>
+
     @if (!string.IsNullOrEmpty(settingsMessage))
     {
         <div style="position:fixed; bottom:40px; left:50%; transform:translateX(-50%); background:var(--accent-green); color:white; padding:12px 24px; border-radius:30px; font-size:14px; font-weight:600; box-shadow:0 8px 24px rgba(0,0,0,0.4); z-index:1000; animation: slideUp 0.3s ease;">
@@ -367,6 +481,7 @@
     private bool generalExpanded = true;
     private bool connectionExpanded = false;
     private bool sharingExpanded = false;
+    private bool updatesExpanded = false;
     
     // Share Browser State
     private string currentOsPath = "";
@@ -561,6 +676,16 @@
     {
         await Connection.RemoveSharedDirectory(name);
         message = "";
+    }
+
+    private async Task CheckForUpdate()
+    {
+        await Connection.CheckForUpdateAsync();
+    }
+
+    private async Task InstallUpdate()
+    {
+        await Connection.InstallUpdateAsync();
     }
 
     private string FormatSize(long bytes)

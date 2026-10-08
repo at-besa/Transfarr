@@ -302,6 +302,11 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
 
         foreach (var item in pendingQueue)
         {
+            if (activeDownloads.Count >= 1)
+            {
+                break;
+            }
+
             // Only start if we aren't already downloading this file
             if (!activeDownloads.ContainsKey(item.Id))
             {
@@ -440,6 +445,17 @@ public class DownloadManager(ShareDatabase db, SystemLogger logger, IOptions<Nod
             if (item.BytesDownloaded >= item.FileSize)
             {
                 CompleteDownload(item);
+            }
+            else
+            {
+                if (items.TryGetValue(item.Id, out var currentItem))
+                {
+                    currentItem.Status = "Queued";
+                    db.UpsertDownloadItem(currentItem);
+                }
+                activeDownloads.TryRemove(item.Id, out _);
+                OnQueueChanged?.Invoke();
+                _ = ProcessQueueAsync();
             }
         }
         catch(Exception ex)

@@ -9,7 +9,16 @@ using SignalRSwaggerGen.Attributes;
 namespace Transfarr.Node.Hubs;
 
 [SignalRHub]
-public class LocalClientHub(NodeConnectionManager node, DownloadManager downloads, ShareManager shares, ShareDatabase db, TransferServer ts, SystemLogger logger, CryptoManager crypto, BandwidthController bc) : Hub
+public class LocalClientHub(
+    NodeConnectionManager node, 
+    DownloadManager downloads, 
+    ShareManager shares, 
+    ShareDatabase db, 
+    TransferServer ts, 
+    SystemLogger logger, 
+    CryptoManager crypto, 
+    BandwidthController bc,
+    Transfarr.Node.Services.UpdateService updates) : Hub
 {
     public override async Task OnConnectedAsync()
     {
@@ -31,6 +40,7 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
         await Clients.Caller.SendAsync("SharesUpdate", shares.GetSharedDirectories());
         await Clients.Caller.SendAsync("GlobalHubStatus", node.IsConnectedToGlobalHub, node.GlobalHubUrl, node.NodeName);
         await Clients.Caller.SendAsync("ConnectivityModeUpdate", (int)node.CurrentConnectivityMode);
+        await Clients.Caller.SendAsync("UpdateStatusChanged", updates.GetStatus());
         await base.OnConnectedAsync();
     }
 
@@ -295,5 +305,15 @@ public class LocalClientHub(NodeConnectionManager node, DownloadManager download
     {
         bc.SetDownloadLimitMBps(limitMBps);
         _ = Task.Run(() => db.SaveSetting("DownloadLimitMBps", limitMBps.ToString()));
+    }
+
+    public async Task CheckForUpdate()
+    {
+        await updates.CheckForUpdateAsync();
+    }
+
+    public void InstallUpdate()
+    {
+        _ = Task.Run(() => updates.InstallUpdateAsync());
     }
 }
